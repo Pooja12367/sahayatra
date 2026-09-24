@@ -61,6 +61,7 @@ async function bootstrap() {
 
   const ALLOWED_ORIGINS = [
     'http://localhost:3000',
+    'http://127.0.0.1:3000',
     'https://ambu-sense-frontend.vercel.app',
     'https://ambusense-frontend.vercel.app',
   ];
@@ -135,7 +136,7 @@ async function bootstrap() {
         `Swagger UI is protected with Basic Auth ? http://localhost:${configService.get('PORT')}/api/docs`,
       );
     } else {
-      console.warn('SWAGGER_PASSWORD not set — Swagger UI disabled');
+      console.warn('SWAGGER_PASSWORD not set ï¿½ Swagger UI disabled');
     }
   }
 

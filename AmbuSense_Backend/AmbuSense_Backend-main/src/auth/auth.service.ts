@@ -42,6 +42,24 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   private auth?: AmbuSenseAuth;
   private mongoClient?: MongoClient;
 
+  static resolveDefaultAdminConfig(configService: ConfigService) {
+    const fullName = configService.get<string>('ADMIN_FULL_NAME');
+    const email = configService.get<string>('ADMIN_EMAIL');
+    const phone = configService.get<string>('ADMIN_PHONE');
+    const password = configService.get<string>('ADMIN_PASSWORD');
+
+    if (!fullName || !email || !phone || !password) {
+      return null;
+    }
+
+    return {
+      fullName,
+      email,
+      phone,
+      password,
+    };
+  }
+
   constructor(
     private readonly configService: ConfigService,
     private readonly usersService: UsersService,
@@ -52,6 +70,8 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     const { auth, client } = await createBetterAuth(this.configService);
     this.auth = auth;
     this.mongoClient = client;
+
+    await this.ensureDefaultAdmin();
   }
 
   async onModuleDestroy() {
@@ -118,6 +138,49 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       user: this.usersService.sanitize(user),
       profile,
     };
+  }
+
+  private async ensureDefaultAdmin() {
+    const adminConfig = AuthService.resolveDefaultAdminConfig(this.configService);
+
+    if (!adminConfig) {
+      return;
+    }
+
+    const existingAdmin = await this.usersService.findByEmail(adminConfig.email);
+
+    if (existingAdmin) {
+      if (existingAdmin.role !== UserRole.ADMIN) {
+        throw new ConflictException(
+          'A user already exists with the configured admin email, but it is not an admin account.',
+        );
+      }
+
+      return;
+    }
+
+    const existingPhone = await this.usersService.findByPhone(adminConfig.phone);
+
+    if (existingPhone) {
+      throw new ConflictException(
+        'A user already exists with the configured admin phone number.',
+      );
+    }
+
+    await this.createUserWithProfile(
+      {
+        fullName: adminConfig.fullName,
+        email: adminConfig.email,
+        phone: adminConfig.phone,
+        password: adminConfig.password,
+        role: UserRole.ADMIN,
+      },
+      { headers: {} } as Request,
+      undefined,
+      false,
+    );
+
+    console.log(`Default admin created: ${adminConfig.email}`);
   }
 
   async login(dto: LoginDto, req: Request, res: ExpressResponse) {
@@ -334,10 +397,10 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     return this.auth;
   }
 
-  private headersFromRequest(req: Request, includeCookies = true): Headers {
+  private headersFromRequest(req: Request | undefined, includeCookies = true): Headers {
     const headers = new Headers();
 
-    for (const [key, value] of Object.entries(req.headers)) {
+    for (const [key, value] of Object.entries(req?.headers ?? {})) {
       if (!includeCookies && key.toLowerCase() === 'cookie') {
         continue;
       }

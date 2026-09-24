@@ -1,7 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import type { Auth } from 'better-auth';
 import { MongoClient } from 'mongodb';
-import { UserRole } from '../constants/enums';
 
 type BetterAuthModule = typeof import('better-auth');
 type MongoAdapterModule = typeof import('@better-auth/mongo-adapter');
@@ -130,7 +129,7 @@ function getBetterAuthOptions(
           input: true,
         },
         role: {
-          type: Object.values(UserRole),
+          type: 'string',
           required: true,
           input: true,
         },

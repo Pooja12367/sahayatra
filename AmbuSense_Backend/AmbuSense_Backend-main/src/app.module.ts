@@ -25,6 +25,7 @@ import { DriversModule } from './drivers/drivers.module';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         uri: configService.get<string>('MONGODB_URI'),
+        dbName: configService.get<string>('MONGODB_DB_NAME'),
       }),
     }),
     AmbulanceModule,

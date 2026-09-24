@@ -91,10 +91,10 @@ export default function LocationMapPicker({
   );
 
   return (
-    <div className="relative overflow-hidden rounded-lg border">
+    <div className="relative z-0 overflow-hidden rounded-lg border">
       <MapContainer
         center={toLatLng(selectedCoordinates)}
-        className="h-72 w-full"
+        className="z-0 h-72 w-full"
         scrollWheelZoom
         zoom={14}
       >
