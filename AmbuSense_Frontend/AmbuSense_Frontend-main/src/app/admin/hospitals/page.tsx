@@ -18,8 +18,10 @@ import {
 } from "lucide-react";
 import {
   Fragment,
+  type Dispatch,
   type FormEvent,
   type ReactNode,
+  type SetStateAction,
   useEffect,
   useMemo,
   useState,
@@ -58,6 +60,7 @@ import {
   useUpdateHospital,
 } from "@/hooks/use-hospitals";
 import { getFriendlyApiErrorMessage } from "@/lib/api";
+import { isValidCoordinates, PHONE_REGEX } from "@/lib/location-validation";
 import {
   hospitalStatuses,
   type Hospital,
@@ -87,8 +90,8 @@ const emptyForm: HospitalFormState = {
   capacity: "",
   availableBeds: "",
   specialization: "",
-  longitude: "85.324",
-  latitude: "27.7172",
+  longitude: "",
+  latitude: "",
 };
 
 const pageSizeOptions = [5, 10, 20] as const;
@@ -133,18 +136,8 @@ function formatLocation(hospital: Hospital) {
   );
 }
 
-function isValidCoordinates(
-  coordinates: Coordinates | null | undefined,
-): coordinates is Coordinates {
-  return (
-    Array.isArray(coordinates) &&
-    coordinates.length === 2 &&
-    coordinates.every((coordinate) => Number.isFinite(coordinate))
-  );
-}
-
 function getFormFromHospital(hospital: Hospital): HospitalFormState {
-  const coordinates = hospital.location?.coordinates ?? [85.324, 27.7172];
+  const coordinates = hospital.location?.coordinates;
 
   return {
     name: hospital.name,
@@ -154,8 +147,8 @@ function getFormFromHospital(hospital: Hospital): HospitalFormState {
     capacity: String(hospital.capacity),
     availableBeds: String(hospital.availableBeds),
     specialization: hospital.specialization?.join(", ") ?? "",
-    longitude: String(coordinates[0]),
-    latitude: String(coordinates[1]),
+    longitude: coordinates ? String(coordinates[0]) : "",
+    latitude: coordinates ? String(coordinates[1]) : "",
   };
 }
 
@@ -173,8 +166,8 @@ function parseHospitalForm(form: HospitalFormState) {
     throw new Error("Hospital name is required");
   }
 
-  if (!form.phone.trim()) {
-    throw new Error("Phone is required");
+  if (!PHONE_REGEX.test(form.phone)) {
+    throw new Error("Phone number must be exactly 10 digits");
   }
 
   if (!form.address.trim()) {
@@ -193,8 +186,8 @@ function parseHospitalForm(form: HospitalFormState) {
     throw new Error("Available beds cannot exceed capacity");
   }
 
-  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-    throw new Error("Location must use valid longitude and latitude");
+  if (!isValidCoordinates([longitude, latitude])) {
+    throw new Error("Please select a valid location");
   }
 
   return {
@@ -658,7 +651,7 @@ function HospitalDialog({
   mode: DialogMode | null;
   onClose: () => void;
   onDelete: () => void;
-  onFormChange: (form: HospitalFormState) => void;
+  onFormChange: Dispatch<SetStateAction<HospitalFormState>>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   if (!mode) {
@@ -673,6 +666,27 @@ function HospitalDialog({
         : mode === "delete"
           ? "Delete hospital"
           : "Hospital details";
+  const locationCoordinates =
+    form.longitude.trim() && form.latitude.trim()
+      ? ([Number(form.longitude), Number(form.latitude)] as Coordinates)
+      : null;
+  const phoneError = !PHONE_REGEX.test(form.phone)
+    ? "Phone number must be exactly 10 digits"
+    : null;
+  const locationError = !isValidCoordinates(locationCoordinates)
+    ? "Please select a valid location"
+    : null;
+  const formIsValid = Boolean(
+    form.name.trim() &&
+      form.address.trim() &&
+      Number.isInteger(Number(form.capacity)) &&
+      Number(form.capacity) >= 0 &&
+      Number.isInteger(Number(form.availableBeds)) &&
+      Number(form.availableBeds) >= 0 &&
+      Number(form.availableBeds) <= Number(form.capacity) &&
+      !phoneError &&
+      !locationError,
+  );
 
   return (
     <Dialog open={!!mode} onOpenChange={(open) => !open && onClose()}>
@@ -730,14 +744,24 @@ function HospitalDialog({
                   }
                   value={form.name}
                 />
+                {!form.name.trim() ? (
+                  <p className="text-sm text-red-600">Hospital name is required</p>
+                ) : null}
               </Field>
               <Field label="Phone">
                 <Input
+                  inputMode="numeric"
+                  maxLength={10}
                   onChange={(event) =>
+                    /^[0-9]{0,10}$/.test(event.target.value) &&
                     onFormChange({ ...form, phone: event.target.value })
                   }
+                  type="tel"
                   value={form.phone}
                 />
+                {phoneError ? (
+                  <p className="text-sm text-red-600">{phoneError}</p>
+                ) : null}
               </Field>
               <Field label="Address">
                 <Input
@@ -795,15 +819,23 @@ function HospitalDialog({
               latitude={form.latitude}
               longitude={form.longitude}
               onCoordinatesChange={(coordinates) =>
-                onFormChange({ ...form, ...coordinates })
+                onFormChange((current) => ({ ...current, ...coordinates }))
               }
-              onLatitudeChange={(latitude) => onFormChange({ ...form, latitude })}
+              onLatitudeChange={(latitude) =>
+                onFormChange((current) => ({ ...current, latitude }))
+              }
               onLongitudeChange={(longitude) =>
-                onFormChange({ ...form, longitude })
+                onFormChange((current) => ({ ...current, longitude }))
+              }
+              onAddressChange={(address) =>
+                onFormChange((current) => ({ ...current, address }))
               }
               title="Hospital location"
               iconType="hospital"
             />
+            {locationError ? (
+              <p className="text-sm text-red-600">{locationError}</p>
+            ) : null}
             <Field label="Specialization">
               <Input
                 onChange={(event) =>
@@ -827,10 +859,14 @@ function HospitalDialog({
               </Button>
               <Button
                 className="bg-blue-600 text-white hover:bg-blue-700"
-                disabled={isMutating}
+                disabled={isMutating || !formIsValid}
                 type="submit"
               >
-                {mode === "create" ? "Create" : "Save changes"}
+                {isMutating
+                  ? "Submitting..."
+                  : mode === "create"
+                    ? "Create"
+                    : "Save changes"}
               </Button>
             </div>
           </form>

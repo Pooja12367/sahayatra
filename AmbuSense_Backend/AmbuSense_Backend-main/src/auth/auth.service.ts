@@ -37,6 +37,12 @@ type MongoDuplicateKeyError = {
   keyValue?: Record<string, unknown>;
 };
 
+function maskEmail(email: string) {
+  const [localPart, domain] = email.split('@');
+  if (!localPart || !domain) return '[invalid-email]';
+  return `${localPart.slice(0, 1)}***@${domain}`;
+}
+
 @Injectable()
 export class AuthService implements OnModuleInit, OnModuleDestroy {
   private auth?: AmbuSenseAuth;
@@ -228,6 +234,9 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   }
 
   async forgotPassword(dto: ForgotPasswordDto, req: Request) {
+    console.log(
+      `[auth] Password reset request received for ${maskEmail(dto.email)}`,
+    );
     const authResponse = await this.getAuth().api.requestPasswordReset({
       body: {
         email: dto.email,

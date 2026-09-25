@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LocationDisplay } from "@/components/location/location-display";
+import { isValidCoordinates } from "@/lib/location-validation";
 
 type Coordinates = [number, number];
 
@@ -24,6 +25,7 @@ const LocationMapPicker = dynamic(
 
 type LocationInputProps = {
   address?: string | null;
+  onAddressChange?: (value: string) => void;
   latitude: string;
   longitude: string;
   onCoordinatesChange?: (coordinates: {
@@ -57,19 +59,36 @@ function validCoordinates(
   return [lng, lat];
 }
 
+async function lookupAddress([longitude, latitude]: Coordinates) {
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`,
+    { headers: { Accept: "application/json" } },
+  );
+
+  if (!response.ok) {
+    throw new Error("Address lookup failed");
+  }
+
+  const data = (await response.json()) as { display_name?: string };
+  return data.display_name?.trim() ?? "";
+}
+
 export function LocationInput({
   address,
   latitude,
   longitude,
   onCoordinatesChange,
+  onAddressChange,
   onLatitudeChange,
   onLongitudeChange,
   title,
   iconType = "default",
 }: LocationInputProps) {
+  const coordinates = validCoordinates(longitude, latitude);
   const [message, setMessage] = useState<string | null>(null);
   const [isMapOpen, setIsMapOpen] = useState(false);
-  const coordinates = validCoordinates(longitude, latitude);
+  const [pendingCoordinates, setPendingCoordinates] =
+    useState<Coordinates | null>(coordinates);
 
   function applyCoordinates(nextCoordinates: Coordinates) {
     const next = toCoordinateStrings(nextCoordinates);
@@ -82,6 +101,32 @@ export function LocationInput({
     onLatitudeChange(next.latitude);
   }
 
+  function applyAddress(nextCoordinates: Coordinates) {
+    if (!onAddressChange) {
+      return;
+    }
+
+    void lookupAddress(nextCoordinates)
+      .then(onAddressChange)
+      .catch(() => onAddressChange(""));
+  }
+
+  function commitCoordinates(nextCoordinates: Coordinates) {
+    setPendingCoordinates(nextCoordinates);
+    applyCoordinates(nextCoordinates);
+    applyAddress(nextCoordinates);
+  }
+
+  function toggleMap() {
+    if (isMapOpen) {
+      setIsMapOpen(false);
+      return;
+    }
+
+    setPendingCoordinates(coordinates);
+    setIsMapOpen(true);
+  }
+
   function handleUseCurrentLocation() {
     if (!("geolocation" in navigator)) {
       setMessage("Current location is unavailable in this browser.");
@@ -90,7 +135,7 @@ export function LocationInput({
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        applyCoordinates([
+        commitCoordinates([
           position.coords.longitude,
           position.coords.latitude,
         ]);
@@ -131,7 +176,7 @@ export function LocationInput({
       <div className="rounded-lg border bg-background p-3">
         <button
           className="flex w-full items-center justify-between gap-3 text-left text-sm font-medium"
-          onClick={() => setIsMapOpen((value) => !value)}
+          onClick={toggleMap}
           type="button"
         >
           <span>Pick from map</span>
@@ -142,13 +187,34 @@ export function LocationInput({
         {isMapOpen ? (
           <div className="mt-3 space-y-2">
             <LocationMapPicker
-              coordinates={coordinates}
+              coordinates={pendingCoordinates}
               iconType={iconType}
               onChange={(nextCoordinates) => {
+                setPendingCoordinates(nextCoordinates);
                 applyCoordinates(nextCoordinates);
+                applyAddress(nextCoordinates);
                 setMessage("Map location selected.");
               }}
             />
+            <div className="flex items-center justify-between gap-3">
+              <LocationDisplay
+                coordinates={pendingCoordinates}
+                label="Pending location"
+                mapMode="none"
+              />
+              <Button
+                disabled={!isValidCoordinates(pendingCoordinates)}
+                onClick={() => {
+                  if (!pendingCoordinates) return;
+                  commitCoordinates(pendingCoordinates);
+                  setIsMapOpen(false);
+                  setMessage("Location selected.");
+                }}
+                type="button"
+              >
+                Select location
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground">
               Drag the marker to adjust the location. You can also click or tap
               the map to move the marker there.
@@ -167,14 +233,26 @@ export function LocationInput({
           <div className="space-y-2">
             <Label>Longitude</Label>
             <Input
-              onChange={(event) => onLongitudeChange(event.target.value)}
+              onBlur={() => {
+                if (coordinates) applyAddress(coordinates);
+              }}
+              onChange={(event) => {
+                onLongitudeChange(event.target.value);
+                onAddressChange?.("");
+              }}
               value={longitude}
             />
           </div>
           <div className="space-y-2">
             <Label>Latitude</Label>
             <Input
-              onChange={(event) => onLatitudeChange(event.target.value)}
+              onBlur={() => {
+                if (coordinates) applyAddress(coordinates);
+              }}
+              onChange={(event) => {
+                onLatitudeChange(event.target.value);
+                onAddressChange?.("");
+              }}
               value={latitude}
             />
           </div>

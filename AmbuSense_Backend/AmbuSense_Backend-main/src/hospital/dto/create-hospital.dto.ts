@@ -7,6 +7,9 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsNumber,
+  Matches,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -17,9 +20,13 @@ export class CreateHospitalDto {
   @IsNotEmpty()
   name!: string;
 
-  @ApiProperty({ example: '+977014411111' })
+  @ApiProperty({ example: '9817404665' })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(10)
+  @Matches(/^[0-9]{10}$/, {
+    message: 'Phone number must be exactly 10 digits',
+  })
   phone!: string;
 
   @ApiProperty({ example: 'New Baneshwor, Kathmandu' })
@@ -59,5 +66,6 @@ export class CreateHospitalDto {
   @IsArray()
   @ArrayMinSize(2)
   @ArrayMaxSize(2)
+  @IsNumber({}, { each: true })
   coordinates!: [number, number];
 }

@@ -94,12 +94,14 @@ export class EmergencyRequestService implements OnModuleInit {
     createDto: CreateEmergencyRequestDto,
     currentUser?: UserDocument,
   ) {
-    const { coordinates, assignedHospital, ...rest } = createDto;
+    const { coordinates, assignedHospital, notes, ...rest } = createDto;
+    this.assertValidCoordinates(coordinates);
 
     const requestData: Partial<EmergencyRequest> & {
       pickupLocation: { type: 'Point'; coordinates: [number, number] };
     } = {
       ...rest,
+      notes: notes?.trim() ?? '',
       pickupLocation: {
         type: 'Point',
         coordinates,
@@ -252,7 +254,12 @@ export class EmergencyRequestService implements OnModuleInit {
       request.patientPhone = dto.patientPhone;
     }
 
+    if (dto.pickupAddress !== undefined) {
+      request.pickupAddress = dto.pickupAddress;
+    }
+
     if (dto.coordinates) {
+      this.assertValidCoordinates(dto.coordinates);
       request.pickupLocation = {
         type: 'Point',
         coordinates: dto.coordinates,
@@ -1234,5 +1241,21 @@ export class EmergencyRequestService implements OnModuleInit {
     }
 
     await ambulance.save();
+  }
+
+  private assertValidCoordinates(coordinates: [number, number]) {
+    const [longitude, latitude] = coordinates;
+    if (
+      !Number.isFinite(longitude) ||
+      !Number.isFinite(latitude) ||
+      longitude < -180 ||
+      longitude > 180 ||
+      latitude < -90 ||
+      latitude > 90
+    ) {
+      throw new BadRequestException(
+        'Pickup coordinates must be valid longitude and latitude values',
+      );
+    }
   }
 }

@@ -31,7 +31,7 @@ export class Ambulance {
   @Prop({ required: true, trim: true })
   driverName!: string;
 
-  @Prop({ required: true, trim: true })
+  @Prop({ required: true, trim: true, maxlength: 10 })
   phone!: string;
 
   @Prop({
@@ -52,7 +52,6 @@ export class Ambulance {
     coordinates: {
       type: [Number],
       required: true,
-      default: [85.324, 27.7172],
     },
   })
   currentLocation!: {

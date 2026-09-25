@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import type { Auth } from 'better-auth';
 import { MongoClient } from 'mongodb';
+import nodemailer from 'nodemailer';
 
 type BetterAuthModule = typeof import('better-auth');
 type MongoAdapterModule = typeof import('@better-auth/mongo-adapter');
@@ -27,10 +28,76 @@ function getFrontendUrl(configService: ConfigService) {
   ).replace(/\/$/, '');
 }
 
+function maskEmail(email: string) {
+  const [localPart, domain] = email.split('@');
+  if (!localPart || !domain) return '[invalid-email]';
+  return `${localPart.slice(0, 1)}***@${domain}`;
+}
+
 async function sendResetPasswordEmail(
   configService: ConfigService,
   data: ResetPasswordEmailData,
 ) {
+  const smtpHost = configService.get<string>('SMTP_HOST');
+  const smtpPort = Number(configService.get<string>('SMTP_PORT') ?? 587);
+  const smtpUser = configService.get<string>('SMTP_USER');
+  const smtpPassword = configService.get<string>('SMTP_PASSWORD');
+  const smtpFrom = configService.get<string>('SMTP_FROM');
+
+  console.log(
+    `[auth] Password reset email sending attempted for ${maskEmail(data.email)}`,
+  );
+
+  if (smtpHost && smtpUser && smtpPassword && smtpFrom) {
+    if (!Number.isInteger(smtpPort) || smtpPort <= 0) {
+      throw new Error('SMTP_PORT must be a positive integer.');
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: {
+        user: smtpUser,
+        pass: smtpPassword,
+      },
+    });
+
+    try {
+      const result = await transporter.sendMail({
+        from: smtpFrom,
+        to: data.email,
+        subject: 'Reset your AmbuSense password',
+        html: `
+          <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
+            <h2>Reset your AmbuSense password</h2>
+            <p>Hello${data.name ? ` ${data.name}` : ''},</p>
+            <p>Use the button below to create a new password. This link expires soon.</p>
+            <p>
+              <a href="${data.resetUrl}" style="display:inline-block;background:#059669;color:#ffffff;padding:10px 14px;border-radius:8px;text-decoration:none">
+                Reset password
+              </a>
+            </p>
+            <p>If the button does not work, paste this link into your browser:</p>
+            <p style="word-break:break-all">${data.resetUrl}</p>
+            <p>If you did not request this, you can ignore this email.</p>
+          </div>
+        `,
+        text: `Reset your AmbuSense password: ${data.resetUrl}`,
+      });
+
+      console.log(
+        `[auth] Password reset email sent successfully for ${maskEmail(data.email)} (${result.messageId})`,
+      );
+      return;
+    } catch (error) {
+      console.error(
+        `[auth] Password reset email failed for ${maskEmail(data.email)}: ${error instanceof Error ? error.message : 'unknown SMTP error'}`,
+      );
+      throw new Error('Password reset email could not be sent.');
+    }
+  }
+
   const resendApiKey = configService.get<string>('RESEND_API_KEY');
   const fromEmail =
     configService.get<string>('PASSWORD_RESET_FROM_EMAIL') ??
@@ -68,20 +135,23 @@ async function sendResetPasswordEmail(
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error(
+        `[auth] Password reset email failed for ${maskEmail(data.email)} via Resend: ${response.status}`,
+      );
       throw new Error(`Failed to send password reset email: ${errorText}`);
     }
 
+    console.log(
+      `[auth] Password reset email sent successfully for ${maskEmail(data.email)} via Resend`,
+    );
     return;
   }
 
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'Password reset email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL.',
-    );
-  }
-
-  console.warn(
-    `[auth] Password reset link for ${data.email}: ${data.resetUrl}`,
+  console.error(
+    `[auth] Password reset email failed for ${maskEmail(data.email)}: SMTP configuration is incomplete`,
+  );
+  throw new Error(
+    'Password reset email is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, and SMTP_FROM.',
   );
 }
 
@@ -91,6 +161,13 @@ function getBetterAuthOptions(
   mongodbAdapter: MongodbAdapter,
 ) {
   const databaseName = configService.get<string>('MONGODB_DB_NAME');
+  const configuredExpiry = Number(
+    configService.get<string>('RESET_PASSWORD_TOKEN_EXPIRES_IN') ?? 3600,
+  );
+  const resetPasswordTokenExpiresIn =
+    Number.isFinite(configuredExpiry) && configuredExpiry > 0
+      ? configuredExpiry
+      : 3600;
 
   return {
     secret: configService.get<string>('BETTER_AUTH_SECRET'),
@@ -101,9 +178,11 @@ function getBetterAuthOptions(
     }),
     emailAndPassword: {
       enabled: true,
-      resetPasswordTokenExpiresIn:
-        configService.get<number>('RESET_PASSWORD_TOKEN_EXPIRES_IN') ?? 3600,
+      resetPasswordTokenExpiresIn,
       sendResetPassword: async ({ user, token }) => {
+        console.log(
+          `[auth] Password reset token generated for ${maskEmail(user.email)}`,
+        );
         const frontendUrl = getFrontendUrl(configService);
         const resetUrl = `${frontendUrl}/reset-password?token=${encodeURIComponent(
           token,

@@ -36,6 +36,7 @@ export type EmergencyRequest = {
   patientName: string;
   patientPhone: string;
   pickupLocation: EmergencyRequestLocation;
+  pickupAddress?: string | null;
   assignedAmbulance?: Nullable<Ambulance>;
   assignedHospital?: Nullable<Hospital>;
   hospitalAssignmentTechnique?: Nullable<DispatchTechnique>;
@@ -79,6 +80,7 @@ export type CreateEmergencyRequestPayload = {
   patientName: string;
   patientPhone: string;
   coordinates: [number, number];
+  pickupAddress?: string;
   notes?: string;
   assignedHospital?: string;
 };

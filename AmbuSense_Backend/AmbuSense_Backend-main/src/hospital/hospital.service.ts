@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { CreateHospitalDto } from './dto/create-hospital.dto';
@@ -68,6 +73,7 @@ export class HospitalService implements OnModuleInit {
 
   async create(createHospitalDto: CreateHospitalDto) {
     const { coordinates, ...rest } = createHospitalDto;
+    this.assertValidCoordinates(coordinates);
 
     return this.hospitalModel.create({
       ...rest,
@@ -76,6 +82,20 @@ export class HospitalService implements OnModuleInit {
         coordinates,
       },
     });
+  }
+
+  private assertValidCoordinates(coordinates: [number, number]) {
+    const [longitude, latitude] = coordinates;
+    if (
+      !Number.isFinite(longitude) ||
+      !Number.isFinite(latitude) ||
+      longitude < -180 ||
+      longitude > 180 ||
+      latitude < -90 ||
+      latitude > 90
+    ) {
+      throw new BadRequestException('Please select a valid location');
+    }
   }
 
   async findAll(query: FindHospitalsQueryDto = {}) {

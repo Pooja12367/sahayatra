@@ -62,6 +62,7 @@ import {
 } from "@/hooks/use-my-requests";
 import { useMe } from "@/hooks/use-auth";
 import { getFriendlyApiErrorMessage } from "@/lib/api";
+import { z } from "zod";
 import {
   acquireSocketConnection,
   releaseSocketConnection,
@@ -82,6 +83,7 @@ type RequestFormState = {
   patientPhone: string;
   longitude: string;
   latitude: string;
+  pickupAddress: string;
   notes: string;
   assignedHospital: string;
 };
@@ -89,8 +91,9 @@ type RequestFormState = {
 const emptyForm: RequestFormState = {
   patientName: "",
   patientPhone: "",
-  longitude: "85.324",
-  latitude: "27.7172",
+  longitude: "",
+  latitude: "",
+  pickupAddress: "",
   notes: "",
   assignedHospital: "",
 };
@@ -207,27 +210,49 @@ function getRequestId(request: EmergencyRequest | null) {
 }
 
 function parseRequestForm(form: RequestFormState) {
+  if (!form.latitude.trim() || !form.longitude.trim()) {
+    throw new Error("Please select a pickup location.");
+  }
+
   const longitude = Number(form.longitude);
   const latitude = Number(form.latitude);
 
-  if (!form.patientName.trim()) {
-    throw new Error("Patient name is required");
-  }
+  const result = z
+    .object({
+      patientName: z.string().trim().min(2, "Patient name must be at least 2 characters."),
+      patientPhone: z
+        .string()
+        .trim()
+        .regex(/^(?:\+?977[-\s]?)?(?:0?[97]\d{9})$/, "Enter a valid Nepal mobile number."),
+      latitude: z.number().finite().min(-90).max(90),
+      longitude: z.number().finite().min(-180).max(180),
+      notes: z.string().optional(),
+      pickupAddress: z.string().optional(),
+      assignedHospital: z.string().optional(),
+    })
+    .safeParse({
+      patientName: form.patientName,
+      patientPhone: form.patientPhone,
+      latitude,
+      longitude,
+      notes: form.notes.trim() || undefined,
+      pickupAddress: form.pickupAddress.trim() || undefined,
+      assignedHospital: form.assignedHospital || undefined,
+    });
 
-  if (!form.patientPhone.trim()) {
-    throw new Error("Patient phone is required");
-  }
-
-  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-    throw new Error("Pickup coordinates must use valid longitude and latitude");
+  if (!result.success) {
+    throw new Error(result.error.issues[0]?.message ?? "Please check the request details.");
   }
 
   return {
-    patientName: form.patientName.trim(),
-    patientPhone: form.patientPhone.trim(),
+    patientName: result.data.patientName,
+    patientPhone: result.data.patientPhone,
     coordinates: [longitude, latitude] as [number, number],
-    ...(form.notes.trim() ? { notes: form.notes.trim() } : {}),
-    ...(form.assignedHospital ? { assignedHospital: form.assignedHospital } : {}),
+    ...(result.data.pickupAddress ? { pickupAddress: result.data.pickupAddress } : {}),
+    ...(result.data.notes ? { notes: result.data.notes } : {}),
+    ...(result.data.assignedHospital
+      ? { assignedHospital: result.data.assignedHospital }
+      : {}),
   };
 }
 
@@ -416,6 +441,7 @@ export function PatientDashboardContent({
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
                 <Field label="Patient Name">
                   <Input
+                    type="tel"
                     onChange={(event) =>
                       setForm({ ...form, patientName: event.target.value })
                     }
@@ -432,6 +458,7 @@ export function PatientDashboardContent({
                 </Field>
               </div>
               <LocationInput
+                address={form.pickupAddress}
                 latitude={form.latitude}
                 longitude={form.longitude}
                 onCoordinatesChange={(coordinates) =>
@@ -442,6 +469,9 @@ export function PatientDashboardContent({
                 }
                 onLongitudeChange={(longitude) =>
                   setForm((current) => ({ ...current, longitude }))
+                }
+                onAddressChange={(pickupAddress) =>
+                  setForm((current) => ({ ...current, pickupAddress }))
                 }
                 title="Pickup location"
                 iconType="patient"
@@ -483,7 +513,7 @@ export function PatientDashboardContent({
                 type="submit"
               >
                 <Plus className="size-4" />
-                Create request
+                {createRequest.isPending ? "Submitting..." : "Create request"}
               </Button>
             </form>
           </CardContent>

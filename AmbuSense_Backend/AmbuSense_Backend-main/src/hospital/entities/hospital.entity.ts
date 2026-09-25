@@ -8,7 +8,7 @@ export class Hospital {
   @Prop({ required: true, trim: true })
   name!: string;
 
-  @Prop({ required: true, trim: true })
+  @Prop({ required: true, trim: true, maxlength: 10 })
   phone!: string;
 
   @Prop({ required: true, trim: true })
@@ -40,7 +40,6 @@ export class Hospital {
     coordinates: {
       type: [Number],
       required: true,
-      default: [85.324, 27.7172],
     },
   })
   location!: {

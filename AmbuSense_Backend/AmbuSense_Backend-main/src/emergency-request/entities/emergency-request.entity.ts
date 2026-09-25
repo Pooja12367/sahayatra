@@ -20,8 +20,11 @@ export class EmergencyRequest {
   @Prop({ required: true, trim: true })
   patientName!: string;
 
-  @Prop({ required: true, trim: true })
+  @Prop({ required: true, trim: true, maxlength: 20 })
   patientPhone!: string;
+
+  @Prop({ type: String, default: '', maxlength: 500, trim: true })
+  pickupAddress?: string;
 
   @Prop({
     type: {

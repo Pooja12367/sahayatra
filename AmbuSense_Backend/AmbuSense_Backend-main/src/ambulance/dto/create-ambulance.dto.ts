@@ -7,6 +7,9 @@ import {
   ArrayMinSize,
   ArrayMaxSize,
   IsBoolean,
+  IsNumber,
+  Matches,
+  MaxLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { AmbulanceStatus } from '../../constants/enums';
@@ -22,9 +25,13 @@ export class CreateAmbulanceDto {
   @IsNotEmpty()
   driverName!: string;
 
-  @ApiProperty({ example: '+9779800000102' })
+  @ApiProperty({ example: '9817404665' })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(10)
+  @Matches(/^[0-9]{10}$/, {
+    message: 'Phone number must be exactly 10 digits',
+  })
   phone!: string;
 
   @ApiPropertyOptional({
@@ -44,6 +51,7 @@ export class CreateAmbulanceDto {
   @IsArray()
   @ArrayMinSize(2)
   @ArrayMaxSize(2)
+  @IsNumber({}, { each: true })
   coordinates!: [number, number];
 
   @ApiPropertyOptional({ example: true })

@@ -65,6 +65,10 @@ async function bootstrap() {
     'https://ambu-sense-frontend.vercel.app',
     'https://ambusense-frontend.vercel.app',
   ];
+  const configuredFrontendUrl = configService.get<string>('FRONTEND_URL');
+  if (configuredFrontendUrl) {
+    ALLOWED_ORIGINS.push(new URL(configuredFrontendUrl).origin);
+  }
 
   app.enableCors({
     origin: (origin, callback) => {

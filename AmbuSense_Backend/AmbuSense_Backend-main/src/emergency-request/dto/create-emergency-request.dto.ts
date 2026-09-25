@@ -2,7 +2,11 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsNumber,
   IsMongoId,
+  Matches,
+  MaxLength,
+  MinLength,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -13,11 +17,15 @@ export class CreateEmergencyRequestDto {
   @ApiProperty({ example: 'Sita Tamang' })
   @IsString()
   @IsNotEmpty()
+  @MinLength(2)
+  @MaxLength(100)
   patientName!: string;
 
   @ApiProperty({ example: '+9779800000202' })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(20)
+  @Matches(/^(?:\+?977[-\s]?)?(?:0?[97]\d{9})$/)
   patientPhone!: string;
 
   @ApiProperty({
@@ -29,7 +37,14 @@ export class CreateEmergencyRequestDto {
   @IsArray()
   @ArrayMinSize(2)
   @ArrayMaxSize(2)
+  @IsNumber({}, { each: true })
   coordinates!: [number, number];
+
+  @ApiPropertyOptional({ example: 'Kathmandu, Nepal', maxLength: 500 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  pickupAddress?: string;
 
   @ApiPropertyOptional({ example: 'Patient has chest pain' })
   @IsOptional()

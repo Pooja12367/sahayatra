@@ -68,7 +68,12 @@ export function LocationDisplay({
         )}
       >
         <MapPin className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate">{primaryText}</span>
+        <span className="min-w-0 truncate">
+          {primaryText}
+          {hasCoordinates && !address?.trim()
+            ? ` (${coordinates[1].toFixed(6)}, ${coordinates[0].toFixed(6)})`
+            : null}
+        </span>
       </span>
     );
   }
@@ -93,6 +98,11 @@ export function LocationDisplay({
           </button>
         ) : null}
       </div>
+      {hasCoordinates ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Coordinates: {coordinates[1].toFixed(6)}, {coordinates[0].toFixed(6)}
+        </p>
+      ) : null}
       {hasCoordinates && isMapOpen ? (
         <LocationPreviewMap coordinates={coordinates} />
       ) : null}

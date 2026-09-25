@@ -157,6 +157,7 @@ function formatLocation(request: EmergencyRequest) {
   const coordinates = request.pickupLocation?.coordinates;
   return (
     <LocationDisplay
+      address={request.pickupAddress}
       coordinates={coordinates}
       label="Pickup location"
       tone="muted"
@@ -945,6 +946,14 @@ function RequestDetails({ request }: { request: EmergencyRequest }) {
           </Badge>
         </div>
         <Detail label="Pickup Location" value={formatLocation(request)} />
+                <Detail
+                  label="Coordinates"
+                  value={
+                    request.pickupLocation?.coordinates
+                      ? `Lat: ${request.pickupLocation.coordinates[1].toFixed(6)}, Lng: ${request.pickupLocation.coordinates[0].toFixed(6)}`
+                      : "Location unavailable"
+                  }
+                />
         <Detail
           label="Ambulance"
           value={getAmbulanceLabel(request.assignedAmbulance)}

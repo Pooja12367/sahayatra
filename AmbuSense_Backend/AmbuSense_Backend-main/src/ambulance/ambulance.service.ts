@@ -90,6 +90,7 @@ export class AmbulanceService implements OnModuleInit {
 
   async create(createAmbulanceDto: CreateAmbulanceDto) {
     const { coordinates, ...rest } = createAmbulanceDto;
+    this.assertValidCoordinates(coordinates);
 
     if (
       await this.ambulanceModel.findOne({
@@ -109,6 +110,20 @@ export class AmbulanceService implements OnModuleInit {
     this.emitAmbulanceUpdated(created);
 
     return created;
+  }
+
+  private assertValidCoordinates(coordinates: [number, number]) {
+    const [longitude, latitude] = coordinates;
+    if (
+      !Number.isFinite(longitude) ||
+      !Number.isFinite(latitude) ||
+      longitude < -180 ||
+      longitude > 180 ||
+      latitude < -90 ||
+      latitude > 90
+    ) {
+      throw new BadRequestException('Please select a valid location');
+    }
   }
 
   async findAll(query: FindAmbulancesQueryDto = {}) {
@@ -223,7 +238,8 @@ export class AmbulanceService implements OnModuleInit {
 
     const allowedNextStatuses = ALLOWED_STATUS_TRANSITIONS[currentStatus] || [];
 
-    if (!allowedNextStatuses.includes(nextStatus)) {
+    const isAdminOverride = currentUser?.role === UserRole.ADMIN;
+    if (!isAdminOverride && !allowedNextStatuses.includes(nextStatus)) {
       throw new BadRequestException(
         `Invalid status transition from '${currentStatus}' to '${nextStatus}'`,
       );

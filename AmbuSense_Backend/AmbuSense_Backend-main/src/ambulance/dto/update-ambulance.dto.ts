@@ -1,4 +1,14 @@
-import { IsOptional, IsString, IsEnum, IsArray } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateAmbulanceDto {
@@ -12,9 +22,13 @@ export class UpdateAmbulanceDto {
   @IsString()
   driverName?: string;
 
-  @ApiPropertyOptional({ example: '+9779800000102' })
+  @ApiPropertyOptional({ example: '9817404665' })
   @IsOptional()
   @IsString()
+  @MaxLength(10)
+  @Matches(/^[0-9]{10}$/, {
+    message: 'Phone number must be exactly 10 digits',
+  })
   phone?: string;
 
   @ApiPropertyOptional({
@@ -31,5 +45,8 @@ export class UpdateAmbulanceDto {
   })
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(2)
+  @IsNumber({}, { each: true })
   coordinates?: [number, number];
 }
