@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
+import React from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,12 +16,87 @@ import { getApiErrorMessage } from "@/lib/api";
 import { getRoleHomePath } from "@/lib/auth-redirect";
 import { useSignup } from "@/hooks/use-auth";
 
+function normalizePhoneNumber(value: string) {
+  const compact = value.replace(/[\s-]+/g, "").trim();
+
+  if (!compact) {
+    return "";
+  }
+
+  let digits = compact.replace(/\D/g, "");
+
+  if (compact.startsWith("+977")) {
+    digits = compact.slice(4).replace(/\D/g, "");
+  } else if (compact.startsWith("977")) {
+    digits = compact.slice(3).replace(/\D/g, "");
+  }
+
+  if (digits.startsWith("0")) {
+    digits = digits.slice(1);
+  }
+
+  if (!/^9\d{9}$/.test(digits) || /^(\d)\1{9}$/.test(digits)) {
+    return "";
+  }
+
+  return `+977${digits}`;
+}
+
 const registerSchema = z.object({
-  role: z.enum(["patient", "driver"]),
-  fullName: z.string().min(1, "Full name is required"),
-  email: z.string().email("Enter a valid email address"),
-  phone: z.string().min(1, "Phone is required"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  role: z.enum(["patient", "driver"], {
+    message: "Please select a valid account type.",
+  }),
+  fullName: z
+    .string()
+    .trim()
+    .min(2, "Full name must be at least 2 characters long.")
+    .max(100, "Full name must not exceed 100 characters.")
+    .refine((value) => /^(?=.*[\p{L}])[\p{L}\p{M}\s.'-]{2,100}$/u.test(value), {
+      message:
+        "Enter a valid full name with meaningful letters and no excessive symbols.",
+    })
+    .refine((value) => !/\s{2,}/.test(value), {
+      message: "Avoid excessive repeated spaces in the full name.",
+    }),
+  email: z
+    .string()
+    .trim()
+    .transform((value) => value.toLowerCase())
+    .pipe(
+      z.string().min(1, "Email is required.").max(254, "Email is too long.").email("Enter a valid email address."),
+    ),
+  phone: z
+    .string()
+    .trim()
+    .transform((value) => normalizePhoneNumber(value))
+    .pipe(
+      z
+        .string()
+        .min(1, "Phone number is required.")
+        .refine((value) => /^\+9779\d{9}$/.test(value), {
+          message:
+            "Enter a valid Nepal mobile number, for example +9779841234567.",
+        }),
+    ),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters long.")
+    .max(128, "Password must not exceed 128 characters.")
+    .refine((value) => !/^\s|\s$/.test(value), {
+      message: "Password must not start or end with whitespace.",
+    })
+    .refine((value) => /[A-Z]/.test(value), {
+      message: "Password must include at least one uppercase letter.",
+    })
+    .refine((value) => /[a-z]/.test(value), {
+      message: "Password must include at least one lowercase letter.",
+    })
+    .refine((value) => /\d/.test(value), {
+      message: "Password must include at least one number.",
+    })
+    .refine((value) => /[^A-Za-z0-9]/.test(value), {
+      message: "Password must include at least one special character.",
+    }),
 });
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
@@ -30,6 +106,7 @@ export default function RegisterPage() {
   const signup = useSignup();
   const form = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
+    mode: "onSubmit",
     defaultValues: {
       role: "patient",
       fullName: "",
@@ -58,6 +135,7 @@ export default function RegisterPage() {
 
   const selectedRole = form.watch("role");
   const isDriverSignup = selectedRole === "driver";
+  const [showPassword, setShowPassword] = React.useState(false);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.12),transparent_34%),linear-gradient(135deg,#ffffff_0%,#f4f6f9_48%,#eef3fb_100%)] px-4 py-10">
@@ -67,11 +145,11 @@ export default function RegisterPage() {
             <CardHeader className="text-center">
               <div className="mx-auto flex h-24 w-56 items-center justify-center rounded-xl bg-white px-3 shadow-inner ring-1 ring-blue-100">
                 <Image
-                  alt="AmbuSense logo"
+                  alt="Sahayatra logo"
                   className="h-full w-full object-contain"
                   height={120}
                   priority
-                  src="/ambu-logo-cropped.png"
+                  src="/sahayatra-crop.jpg"
                   width={260}
                 />
               </div>
@@ -80,7 +158,7 @@ export default function RegisterPage() {
                   Create your account
                 </h1>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Choose how you will use AmbuSense.
+                  Choose how you will use Sahayatra.
                 </p>
               </div>
             </CardHeader>
@@ -130,10 +208,13 @@ export default function RegisterPage() {
                     autoComplete="name"
                     placeholder="Sita Tamang"
                     aria-invalid={!!form.formState.errors.fullName}
+                    aria-describedby={
+                      form.formState.errors.fullName ? "fullName-error" : undefined
+                    }
                     {...form.register("fullName")}
                   />
                   {form.formState.errors.fullName ? (
-                    <p className="text-sm text-destructive">
+                    <p id="fullName-error" className="text-sm text-destructive">
                       {form.formState.errors.fullName.message}
                     </p>
                   ) : null}
@@ -147,10 +228,13 @@ export default function RegisterPage() {
                     autoComplete="email"
                     placeholder="patient@example.com"
                     aria-invalid={!!form.formState.errors.email}
+                    aria-describedby={
+                      form.formState.errors.email ? "email-error" : undefined
+                    }
                     {...form.register("email")}
                   />
                   {form.formState.errors.email ? (
-                    <p className="text-sm text-destructive">
+                    <p id="email-error" className="text-sm text-destructive">
                       {form.formState.errors.email.message}
                     </p>
                   ) : null}
@@ -164,10 +248,13 @@ export default function RegisterPage() {
                     autoComplete="tel"
                     placeholder="+9779800000001"
                     aria-invalid={!!form.formState.errors.phone}
+                    aria-describedby={
+                      form.formState.errors.phone ? "phone-error" : undefined
+                    }
                     {...form.register("phone")}
                   />
                   {form.formState.errors.phone ? (
-                    <p className="text-sm text-destructive">
+                    <p id="phone-error" className="text-sm text-destructive">
                       {form.formState.errors.phone.message}
                     </p>
                   ) : null}
@@ -175,16 +262,37 @@ export default function RegisterPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder="Create a strong password"
-                    aria-invalid={!!form.formState.errors.password}
-                    {...form.register("password")}
-                  />
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      placeholder="Create a strong password"
+                      aria-invalid={!!form.formState.errors.password}
+                      aria-describedby={
+                        form.formState.errors.password ? "password-error" : "password-hint"
+                      }
+                      {...form.register("password")}
+                    />
+                    <button
+                      type="button"
+                      className="absolute inset-y-0 right-3 flex items-center text-xs font-medium text-blue-700"
+                      onClick={() => setShowPassword((current) => !current)}
+                    >
+                      {showPassword ? "Hide" : "Show"}
+                    </button>
+                  </div>
+                  <ul
+                    id="password-hint"
+                    className="grid gap-1 text-xs text-slate-600"
+                  >
+                    <li>• Minimum 8 characters</li>
+                    <li>• At least 1 uppercase, 1 lowercase, and 1 number</li>
+                    <li>• At least 1 special character</li>
+                    <li>• No leading or trailing whitespace</li>
+                  </ul>
                   {form.formState.errors.password ? (
-                    <p className="text-sm text-destructive">
+                    <p id="password-error" className="text-sm text-destructive">
                       {form.formState.errors.password.message}
                     </p>
                   ) : null}

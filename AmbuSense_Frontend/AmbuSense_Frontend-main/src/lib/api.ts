@@ -19,11 +19,48 @@ export function isAuthExpiredError(error: unknown) {
 
 export function getApiErrorMessage(error: unknown) {
   if (axios.isAxiosError<ApiErrorResponse>(error)) {
-    return (
+    const message =
       error.response?.data?.message ??
       error.response?.data?.error ??
-      error.message
-    );
+      error.message;
+
+    const normalized = String(message ?? '').toLowerCase();
+    const status = error.response?.status;
+
+    if (status === 401) {
+      return "Your session has expired. Please sign in again.";
+    }
+
+    if (status === 403) {
+      return "You do not have permission to perform this action.";
+    }
+
+    if (status === 409 || normalized.includes("already exists")) {
+      if (normalized.includes("email")) {
+        return "An account with this email already exists.";
+      }
+
+      if (normalized.includes("phone")) {
+        return "An account with this phone number already exists.";
+      }
+
+      return "This account already exists.";
+    }
+
+    if (normalized.includes("validation")) {
+      return "Please check the highlighted fields and try again.";
+    }
+
+    if (
+      !message ||
+      message === "Network Error" ||
+      message.includes("status code") ||
+      status === 500
+    ) {
+      return "Unable to connect to the server. Please try again.";
+    }
+
+    return message;
   }
 
   if (error instanceof Error) {

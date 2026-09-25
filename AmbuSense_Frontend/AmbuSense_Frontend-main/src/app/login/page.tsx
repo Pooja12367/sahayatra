@@ -52,7 +52,7 @@ export default function LoginPage() {
         <div className="grid w-full items-center gap-8 lg:grid-cols-[1fr_420px]">
           <div className="hidden space-y-6 lg:block">
             <div className="inline-flex rounded-full border border-blue-200 bg-white/70 px-3 py-1 text-sm font-medium text-blue-700 shadow-sm">
-              AmbuSense care network
+              Sahayatra care network
             </div>
             <div className="space-y-4">
               <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-slate-950">
@@ -79,11 +79,11 @@ export default function LoginPage() {
             <CardHeader className="text-center">
               <div className="mx-auto flex h-24 w-56 items-center justify-center rounded-xl bg-white px-3 shadow-inner ring-1 ring-blue-100">
                 <Image
-                  alt="AmbuSense logo"
+                  alt="Sahayatra logo"
                   className="h-full w-full object-contain"
                   height={120}
                   priority
-                  src="/ambu-logo-cropped.png"
+                  src="/sahayatra-crop.jpg"
                   width={260}
                 />
               </div>
@@ -92,7 +92,7 @@ export default function LoginPage() {
                   Welcome back
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Sign in to continue to AmbuSense.
+                  Sign in to continue to Sahayatra.
                 </p>
               </div>
             </CardHeader>

@@ -334,11 +334,13 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     ]);
 
     if (emailUser) {
-      throw new ConflictException('A user with this email already exists');
+      throw new ConflictException('An account with this email already exists.');
     }
 
     if (phoneUser) {
-      throw new ConflictException('A user with this phone already exists');
+      throw new ConflictException(
+        'An account with this phone number already exists.',
+      );
     }
   }
 
@@ -350,14 +352,16 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     const duplicateField = Object.keys(error.keyPattern ?? {})[0];
 
     if (duplicateField === 'email') {
-      throw new ConflictException('A user with this email already exists');
+      throw new ConflictException('An account with this email already exists.');
     }
 
     if (duplicateField === 'phone') {
-      throw new ConflictException('A user with this phone already exists');
+      throw new ConflictException(
+        'An account with this phone number already exists.',
+      );
     }
 
-    throw new ConflictException('A user with these details already exists');
+    throw new ConflictException('An account with these details already exists.');
   }
 
   private isMongoDuplicateKeyError(

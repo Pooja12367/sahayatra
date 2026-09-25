@@ -162,11 +162,11 @@ function AuthCard({
           <CardHeader className="text-center">
             <div className="mx-auto flex h-24 w-56 items-center justify-center rounded-xl bg-white px-3 shadow-inner ring-1 ring-blue-100">
               <Image
-                alt="AmbuSense logo"
+                alt="Sahayatra logo"
                 className="h-full w-full object-contain"
                 height={120}
                 priority
-                src="/ambu-logo-cropped.png"
+                src="/sahayatra-crop.jpg"
                 width={260}
               />
             </div>

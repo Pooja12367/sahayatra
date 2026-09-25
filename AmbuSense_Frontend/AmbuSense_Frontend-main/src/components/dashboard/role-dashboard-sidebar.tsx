@@ -162,11 +162,11 @@ export function RoleDashboardSidebar({ role }: RoleDashboardSidebarProps) {
                 )}
               >
                 <Image
-                  alt="AmbuSense logo"
+                  alt="Sahayatra logo"
                   className="h-full w-full object-contain object-center"
                   height={180}
                   priority
-                  src="/ambu-logo-cropped.png"
+                  src="/sahayatra-crop.jpg"
                   width={260}
                 />
               </div>

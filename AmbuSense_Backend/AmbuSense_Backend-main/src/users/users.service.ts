@@ -29,11 +29,25 @@ export class UsersService {
   }
 
   async findByEmail(email: string): Promise<UserDocument | null> {
-    return this.userModel.findOne({ email: email.toLowerCase() }).exec();
+    return this.userModel
+      .findOne({ email: email.trim().toLowerCase() })
+      .exec();
   }
 
   async findByPhone(phone: string): Promise<UserDocument | null> {
-    return this.userModel.findOne({ phone }).exec();
+    const normalized = this.normalizePhone(phone);
+    const original = phone.trim();
+
+    return this.userModel
+      .findOne({
+        $or: [
+          { phone: normalized },
+          { phone: original },
+          { phone: original.replace(/^\+977/, '') },
+          { phone: original.replace(/^977/, '') },
+        ],
+      })
+      .exec();
   }
 
   async findAll(query: FindUsersQueryDto = {}) {
@@ -160,6 +174,31 @@ export class UsersService {
     if (!Types.ObjectId.isValid(id)) {
       throw new NotFoundException('User not found');
     }
+  }
+
+  private normalizePhone(phone: string): string {
+    const compact = phone.trim().replace(/[\s-]+/g, '');
+    if (!compact) {
+      return '';
+    }
+
+    let digits = compact.replace(/\D/g, '');
+
+    if (compact.startsWith('+977')) {
+      digits = compact.slice(4).replace(/\D/g, '');
+    } else if (compact.startsWith('977')) {
+      digits = compact.slice(3).replace(/\D/g, '');
+    }
+
+    if (digits.startsWith('0')) {
+      digits = digits.slice(1);
+    }
+
+    if (!/^9\d{9}$/.test(digits)) {
+      return '';
+    }
+
+    return `+977${digits}`;
   }
 
   private escapeRegex(value: string) {
