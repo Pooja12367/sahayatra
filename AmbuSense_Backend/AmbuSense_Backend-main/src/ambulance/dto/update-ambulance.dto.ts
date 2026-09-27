@@ -49,4 +49,10 @@ export class UpdateAmbulanceDto {
   @ArrayMaxSize(2)
   @IsNumber({}, { each: true })
   coordinates?: [number, number];
+
+  @ApiPropertyOptional({ example: 'Kathmandu, Nepal', maxLength: 300 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  locationName?: string;
 }

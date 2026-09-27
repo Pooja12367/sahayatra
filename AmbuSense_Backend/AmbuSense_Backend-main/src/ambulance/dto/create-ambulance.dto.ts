@@ -54,6 +54,12 @@ export class CreateAmbulanceDto {
   @IsNumber({}, { each: true })
   coordinates!: [number, number];
 
+  @ApiPropertyOptional({ example: 'Kathmandu, Nepal', maxLength: 300 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  locationName?: string;
+
   @ApiPropertyOptional({ example: true })
   @IsOptional()
   @IsBoolean()

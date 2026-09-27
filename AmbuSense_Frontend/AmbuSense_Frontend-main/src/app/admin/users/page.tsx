@@ -64,7 +64,7 @@ import {
   type UserRole,
 } from "@/types/users";
 
-type DialogMode = "view" | "create" | "created" | "delete" | null;
+type DialogMode = "view" | "create" | "delete" | null;
 
 type StaffFormState = StaffUserPayload;
 
@@ -145,7 +145,6 @@ export default function AdminUsersPage() {
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [form, setForm] = useState<StaffFormState>(emptyForm);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
-  const [createdUser, setCreatedUser] = useState<AdminUser | null>(null);
 
   const filters = useMemo(
     () => ({
@@ -183,7 +182,6 @@ export default function AdminUsersPage() {
   }, [page, totalPages]);
 
   function openCreateDialog() {
-    setCreatedUser(null);
     setSelectedUser(null);
     setForm(emptyForm);
     setDialogMode("create");
@@ -202,18 +200,17 @@ export default function AdminUsersPage() {
   function closeDialog() {
     setDialogMode(null);
     setSelectedUser(null);
+    setForm(emptyForm);
   }
 
   async function handleCreateStaff(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     try {
-      const response = await createStaff.mutateAsync(parseStaffForm(form));
-      setCreatedUser(response.user);
-      setSelectedUser(response.user);
+      await createStaff.mutateAsync(parseStaffForm(form));
       setForm(emptyForm);
-      setDialogMode("created");
-      toast.success("Staff user created");
+      closeDialog();
+      toast.success("Staff user created successfully");
     } catch (error) {
       toast.error(getFriendlyApiErrorMessage(error));
     }
@@ -522,7 +519,6 @@ export default function AdminUsersPage() {
       </Card>
 
       <UserDialog
-        createdUser={createdUser}
         form={form}
         isMutating={isMutating}
         mode={dialogMode}
@@ -537,7 +533,6 @@ export default function AdminUsersPage() {
 }
 
 function UserDialog({
-  createdUser,
   form,
   isMutating,
   mode,
@@ -547,7 +542,6 @@ function UserDialog({
   onSubmit,
   user,
 }: {
-  createdUser: AdminUser | null;
   form: StaffFormState;
   isMutating: boolean;
   mode: DialogMode;
@@ -561,15 +555,12 @@ function UserDialog({
     return null;
   }
 
-  const displayUser = mode === "created" ? createdUser : user;
   const title =
     mode === "create"
       ? "Create staff user"
-      : mode === "created"
-        ? "Staff user created"
-        : mode === "delete"
-          ? "Delete user"
-          : "User details";
+      : mode === "delete"
+        ? "Delete user"
+        : "User details";
 
   return (
     <Dialog open={!!mode} onOpenChange={(open) => !open && onClose()}>
@@ -582,38 +573,32 @@ function UserDialog({
           <div>
             <h2 className="text-xl font-semibold">{title}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {displayUser?.email ?? "Staff users can be admins, dispatchers, or drivers."}
+              {user?.email ?? "Staff users can be admins, dispatchers, or drivers."}
             </p>
           </div>
         </div>
       </DialogHeader>
       <DialogContent className="space-y-5">
-        {(mode === "view" || mode === "created") && displayUser ? (
+        {mode === "view" && user ? (
           <div className="space-y-4">
-            {mode === "created" ? (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                {displayUser.fullName} was created successfully. The password is
-                not displayed after creation.
-              </div>
-            ) : null}
             <div className="grid gap-3 sm:grid-cols-2">
-              <Detail label="Full Name" value={displayUser.fullName} />
-              <Detail label="Email" value={displayUser.email} />
-              <Detail label="Phone" value={displayUser.phone} />
+              <Detail label="Full Name" value={user.fullName} />
+              <Detail label="Email" value={user.email} />
+              <Detail label="Phone" value={user.phone} />
               <div className="rounded-lg border bg-muted/30 p-3">
                 <p className="text-xs text-muted-foreground">Role</p>
-                <Badge className={`mt-1 ${getRoleClass(displayUser.role)}`}>
-                  {formatRole(displayUser.role)}
+                <Badge className={`mt-1 ${getRoleClass(user.role)}`}>
+                  {formatRole(user.role)}
                 </Badge>
               </div>
               <Detail
                 label="Active Status"
-                value={displayUser.isActive ? "Active" : "Inactive"}
+                value={user.isActive ? "Active" : "Inactive"}
               />
-              <Detail label="Created" value={formatDate(displayUser.createdAt)} />
+              <Detail label="Created" value={formatDate(user.createdAt)} />
               <Detail
                 label="Last Login"
-                value={formatDate(displayUser.lastLoginAt)}
+                value={formatDate(user.lastLoginAt)}
               />
             </div>
             <div className="flex justify-end">

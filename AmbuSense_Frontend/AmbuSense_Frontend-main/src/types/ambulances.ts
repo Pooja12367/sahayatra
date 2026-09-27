@@ -26,6 +26,7 @@ export type Ambulance = {
   phone: string;
   status: AmbulanceStatus;
   currentLocation: AmbulanceLocation;
+  locationName?: string;
   isActive: boolean;
   assignedAt?: Nullable<string>;
   reachedPatientAt?: Nullable<string>;
@@ -60,9 +61,13 @@ export type AmbulanceFormPayload = {
   phone: string;
   status?: AmbulanceStatus;
   coordinates: [number, number];
+  locationName: string;
   isActive?: boolean;
 };
 
 export type UpdateAmbulancePayload = Partial<
-  Pick<AmbulanceFormPayload, "ambulanceCode" | "driverName" | "phone" | "coordinates">
+  Pick<
+    AmbulanceFormPayload,
+    "ambulanceCode" | "driverName" | "phone" | "coordinates" | "locationName"
+  >
 >;

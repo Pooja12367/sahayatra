@@ -22,6 +22,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SignupDto } from './dto/signup.dto';
+import { CreateStaffUserDto } from './dto/create-staff-user.dto';
 
 type AuthUserPayload = {
   id: string;
@@ -94,7 +95,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     return this.createUserWithProfile(dto, req, res, true);
   }
 
-  async createStaff(dto: SignupDto, req: Request) {
+  async createStaff(dto: CreateStaffUserDto, req: Request) {
     if (dto.role === UserRole.PATIENT) {
       throw new BadRequestException(
         'Use public signup to create patient users',

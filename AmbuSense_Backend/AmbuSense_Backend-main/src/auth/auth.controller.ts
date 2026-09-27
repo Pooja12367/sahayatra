@@ -25,6 +25,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Roles } from './roles.decorator';
 import { RolesGuard } from './roles.guard';
 import { SignupDto } from './dto/signup.dto';
+import { CreateStaffUserDto } from './dto/create-staff-user.dto';
 import { UserRole } from '../constants/enums';
 import { authExamples } from '../swagger/api-examples';
 
@@ -56,7 +57,7 @@ export class AuthController {
   @ApiCookieAuth('session')
   @ApiOperation({ summary: 'Create a staff account' })
   @ApiBody({
-    type: SignupDto,
+    type: CreateStaffUserDto,
     examples: {
       dispatcher: {
         summary: 'Dispatcher account',
@@ -82,7 +83,7 @@ export class AuthController {
   })
   @ApiResponse({ status: 401, description: 'Not authenticated.' })
   @ApiResponse({ status: 403, description: 'Admin role required.' })
-  async createStaff(@Body() dto: SignupDto, @Req() req: Request) {
+  async createStaff(@Body() dto: CreateStaffUserDto, @Req() req: Request) {
     return this.authService.createStaff(dto, req);
   }
 

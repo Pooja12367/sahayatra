@@ -43,9 +43,8 @@ export function useCreateAmbulance() {
       const { data } = await api.post<Ambulance>("/ambulances", payload);
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ambulanceKeys.all });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ambulanceKeys.all }),
   });
 }
 
@@ -60,15 +59,17 @@ export function useUpdateAmbulance() {
       ambulanceId: string;
       payload: UpdateAmbulancePayload;
     }) => {
-      const { data } = await api.patch<Ambulance>(
+      await api.patch<Ambulance>(
         `/ambulances/${ambulanceId}`,
         payload,
       );
+      const { data } = await api.get<Ambulance>(
+        `/ambulances/${ambulanceId}`,
+      );
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ambulanceKeys.all });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ambulanceKeys.all }),
   });
 }
 

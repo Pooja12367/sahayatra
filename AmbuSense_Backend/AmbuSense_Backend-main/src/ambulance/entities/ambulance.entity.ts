@@ -9,6 +9,7 @@ export interface IAmbulance {
   driverName: string;
   phone: string;
   status: AmbulanceStatus;
+  locationName?: string;
   currentLocation: {
     type: 'Point';
     coordinates: [number, number];
@@ -41,6 +42,9 @@ export class Ambulance {
     default: AmbulanceStatus.OFFLINE,
   })
   status!: AmbulanceStatus;
+
+  @Prop({ type: String, trim: true, maxlength: 300 })
+  locationName?: string;
 
   @Prop({
     type: {

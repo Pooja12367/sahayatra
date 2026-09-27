@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LocationDisplay } from "@/components/location/location-display";
 import { isValidCoordinates } from "@/lib/location-validation";
+import { lookupLocationName } from "@/lib/location-geocoding";
 
 type Coordinates = [number, number];
 
@@ -59,20 +60,6 @@ function validCoordinates(
   return [lng, lat];
 }
 
-async function lookupAddress([longitude, latitude]: Coordinates) {
-  const response = await fetch(
-    `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`,
-    { headers: { Accept: "application/json" } },
-  );
-
-  if (!response.ok) {
-    throw new Error("Address lookup failed");
-  }
-
-  const data = (await response.json()) as { display_name?: string };
-  return data.display_name?.trim() ?? "";
-}
-
 export function LocationInput({
   address,
   latitude,
@@ -106,7 +93,7 @@ export function LocationInput({
       return;
     }
 
-    void lookupAddress(nextCoordinates)
+    void lookupLocationName(nextCoordinates)
       .then(onAddressChange)
       .catch(() => onAddressChange(""));
   }

@@ -43,9 +43,8 @@ export function useCreateStaffUser() {
       );
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: userKeys.all });
-    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: userKeys.all }),
   });
 }
 

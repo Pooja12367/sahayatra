@@ -183,28 +183,30 @@ export class AmbulanceService implements OnModuleInit {
   }
 
   async update(id: string, dto: UpdateAmbulanceDto) {
-    const updateData: Record<string, unknown> = { ...dto };
-    const hasCoordinates = !!dto.coordinates;
+    const { coordinates, ...fields } = dto;
+    const ambulance = await this.ambulanceModel.findById(id);
 
-    if (dto.coordinates) {
-      updateData.currentLocation = {
-        type: 'Point',
-        coordinates: dto.coordinates,
-      };
-      delete updateData.coordinates;
-    }
-
-    const updated = await this.ambulanceModel.findByIdAndUpdate(
-      id,
-      updateData,
-      { returnDocument: 'after' },
-    );
-
-    if (!updated) {
+    if (!ambulance) {
       throw new NotFoundException('Ambulance not found');
     }
 
-    if (hasCoordinates) {
+    for (const [field, value] of Object.entries(fields)) {
+      if (value !== undefined) {
+        ambulance.set(field, value);
+      }
+    }
+
+    if (coordinates) {
+      this.assertValidCoordinates(coordinates);
+      ambulance.currentLocation = {
+        type: 'Point',
+        coordinates,
+      };
+    }
+
+    const updated = await ambulance.save();
+
+    if (coordinates) {
       this.emitAmbulanceLocationUpdated({
         id: updated.id,
         currentLocation: updated.currentLocation,

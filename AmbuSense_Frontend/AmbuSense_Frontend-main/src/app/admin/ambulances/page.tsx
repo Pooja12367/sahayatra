@@ -60,6 +60,7 @@ import {
 } from "@/hooks/use-ambulances";
 import { getFriendlyApiErrorMessage } from "@/lib/api";
 import { isValidCoordinates, PHONE_REGEX } from "@/lib/location-validation";
+import { lookupLocationName } from "@/lib/location-geocoding";
 import {
   ambulanceStatuses,
   type Ambulance,
@@ -135,6 +136,7 @@ function formatLocation(ambulance: Ambulance) {
   const coordinates = ambulance.currentLocation?.coordinates;
   return (
     <LocationDisplay
+      address={ambulance.locationName}
       coordinates={coordinates}
       label="Ambulance location"
       mapMode="inline"
@@ -153,7 +155,7 @@ function getFormFromAmbulance(ambulance: Ambulance): AmbulanceFormState {
     status: ambulance.status,
     longitude: coordinates ? String(coordinates[0]) : "",
     latitude: coordinates ? String(coordinates[1]) : "",
-    address: "",
+    address: ambulance.locationName ?? "",
     isActive: ambulance.isActive,
   };
 }
@@ -184,6 +186,7 @@ function parseForm(form: AmbulanceFormState) {
     phone: form.phone.trim(),
     status: form.status,
     coordinates: [longitude, latitude] as [number, number],
+    locationName: form.address.trim(),
     isActive: form.isActive,
   };
 }
@@ -286,22 +289,66 @@ export default function AdminAmbulancesPage() {
 
     try {
       const payload = parseForm(form);
+      const originalCoordinates = selectedAmbulance?.currentLocation.coordinates;
+      const locationChanged =
+        !originalCoordinates ||
+        originalCoordinates[0] !== payload.coordinates[0] ||
+        originalCoordinates[1] !== payload.coordinates[1];
+      const locationName =
+        locationChanged || !payload.locationName
+          ? await lookupLocationName(payload.coordinates)
+          : payload.locationName;
+      const requestPayload = { ...payload, locationName };
 
       if (dialogMode === "create") {
-        await createAmbulance.mutateAsync(payload);
-        toast.success("Ambulance created");
+        console.log("CREATE AMBULANCE PAYLOAD:", {
+          coordinates: payload.coordinates,
+          locationName,
+        });
+        const createdAmbulance = await createAmbulance.mutateAsync(requestPayload);
+        const savedCoordinates = createdAmbulance.currentLocation?.coordinates;
+        if (
+          !savedCoordinates ||
+          savedCoordinates[0] !== payload.coordinates[0] ||
+          savedCoordinates[1] !== payload.coordinates[1] ||
+          createdAmbulance.locationName !== locationName
+        ) {
+          throw new Error(
+            "The server did not save the selected ambulance location.",
+          );
+        }
+        toast.success("Ambulance created successfully");
       }
 
       if (dialogMode === "edit" && selectedAmbulance) {
-        await updateAmbulance.mutateAsync({
+        const editPayload = {
+          ambulanceCode: payload.ambulanceCode,
+          driverName: payload.driverName,
+          phone: payload.phone,
+          coordinates: payload.coordinates,
+          locationName,
+        };
+        console.log("EDIT AMBULANCE PAYLOAD:", {
           ambulanceId: getAmbulanceId(selectedAmbulance),
-          payload: {
-            ambulanceCode: payload.ambulanceCode,
-            driverName: payload.driverName,
-            phone: payload.phone,
-            coordinates: payload.coordinates,
-          },
+          coordinates: editPayload.coordinates,
         });
+
+        const updatedAmbulance = await updateAmbulance.mutateAsync({
+          ambulanceId: getAmbulanceId(selectedAmbulance),
+          payload: editPayload,
+        });
+
+        const savedCoordinates = updatedAmbulance.currentLocation?.coordinates;
+        if (
+          !savedCoordinates ||
+          savedCoordinates[0] !== payload.coordinates[0] ||
+          savedCoordinates[1] !== payload.coordinates[1] ||
+          updatedAmbulance.locationName !== locationName
+        ) {
+          throw new Error(
+            "The server did not save the selected ambulance location.",
+          );
+        }
         
         if (selectedAmbulance.status !== form.status) {
           await updateStatus.mutateAsync({
@@ -310,7 +357,7 @@ export default function AdminAmbulancesPage() {
           });
         }
         
-        toast.success("Ambulance updated");
+        toast.success("Ambulance updated successfully");
       }
 
       closeDialog();
@@ -479,7 +526,7 @@ export default function AdminAmbulancesPage() {
 
           {ambulances.length > 0 ? (
             <div className="overflow-x-auto">
-              <Table className="min-w-[980px] table-fixed">
+              <Table className="min-w-[1130px] table-fixed">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[150px]">Ambulance Code</TableHead>
@@ -487,7 +534,7 @@ export default function AdminAmbulancesPage() {
                     <TableHead className="w-[160px]">Phone</TableHead>
                     <TableHead className="w-[150px]">Status</TableHead>
                     <TableHead className="w-[120px]">Active</TableHead>
-                    <TableHead className="w-[220px]">Location</TableHead>
+                    <TableHead className="w-[280px]">Location</TableHead>
                     <TableHead className="w-[90px] text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -530,12 +577,20 @@ export default function AdminAmbulancesPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex min-w-0 items-center gap-2">
-                          <LocationDisplay
-                            coordinates={coordinates}
-                            label="Ambulance location"
-                            mapMode="none"
-                            tone="muted"
-                          />
+                          <span
+                            className="min-w-0 truncate text-xs text-muted-foreground"
+                            title={
+                              ambulance.locationName ||
+                              (hasCoordinates
+                                ? `Latitude ${coordinates[1]}, longitude ${coordinates[0]}`
+                                : "Location unavailable")
+                            }
+                          >
+                            {ambulance.locationName ||
+                              (hasCoordinates
+                                ? `Lat ${coordinates[1].toFixed(6)}, Lng ${coordinates[0].toFixed(6)}`
+                                : "Location unavailable")}
+                          </span>
                           {hasCoordinates ? (
                             <Button
                               className="h-7 shrink-0 px-2 text-xs"

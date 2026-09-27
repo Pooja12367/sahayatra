@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { validate } from 'class-validator';
 import { UserRole } from '../constants/enums';
 import { AuthService } from './auth.service';
+import { CreateStaffUserDto } from './dto/create-staff-user.dto';
 import { SignupDto } from './dto/signup.dto';
 
 describe('AuthService default admin bootstrap', () => {
@@ -50,5 +51,48 @@ describe('SignupDto validation', () => {
     expect(errors.length).toBeGreaterThan(0);
     expect(errors.some((error) => error.property === 'role')).toBe(true);
     expect(errors.some((error) => error.property === 'password')).toBe(true);
+  });
+
+  it('continues to accept public driver signup', async () => {
+    const dto = new SignupDto();
+    dto.fullName = 'Sita Tamang';
+    dto.email = 'sita@example.com';
+    dto.phone = '+9779841234567';
+    dto.password = 'Sita123!';
+    dto.role = UserRole.DRIVER;
+
+    expect(await validate(dto)).toHaveLength(0);
+  });
+});
+
+describe('CreateStaffUserDto validation', () => {
+  it.each([UserRole.ADMIN, UserRole.DISPATCHER, UserRole.DRIVER])(
+    'accepts staff role %s',
+    async (role) => {
+      const dto = Object.assign(new CreateStaffUserDto(), {
+        fullName: 'Sita Tamang',
+        email: 'sita@example.com',
+        phone: '+9779841234567',
+        password: 'Sita123!',
+        role,
+      });
+
+      expect(await validate(dto)).toHaveLength(0);
+    },
+  );
+
+  it('rejects patient role and invalid staff request data', async () => {
+    const dto = Object.assign(new CreateStaffUserDto(), {
+      fullName: 'Sita Tamang',
+      email: 'invalid-email',
+      phone: '',
+      password: 'weak',
+      role: UserRole.PATIENT,
+    });
+
+    const errors = await validate(dto);
+    expect(errors.map((error) => error.property)).toEqual(
+      expect.arrayContaining(['email', 'phone', 'password', 'role']),
+    );
   });
 });

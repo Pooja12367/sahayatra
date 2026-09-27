@@ -161,6 +161,18 @@ export class TrackingGateway
       await this.assertCanUpdateAmbulanceLocation(user, payload.ambulanceId);
 
       const current = await this.ambulanceService.findOne(payload.ambulanceId);
+      const reportedAt = payload.timestamp
+        ? Date.parse(payload.timestamp)
+        : Number.NaN;
+      const lastUpdatedAt = current.updatedAt?.getTime();
+
+      if (
+        Number.isFinite(reportedAt) &&
+        lastUpdatedAt !== undefined &&
+        reportedAt <= lastUpdatedAt
+      ) {
+        return { ok: true, skipped: true };
+      }
 
       const [oldLng, oldLat] = current.currentLocation.coordinates;
       const [newLng, newLat] = payload.coordinates;
