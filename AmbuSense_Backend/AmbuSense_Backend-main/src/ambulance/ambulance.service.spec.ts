@@ -16,6 +16,7 @@ describe('AmbulanceService.update', () => {
         type: 'Point',
         coordinates: [85.324, 27.7172],
       },
+      locationUpdatedAt: null,
       set(field: string, value: unknown) {
         Object.assign(this, { [field]: value });
       },
@@ -49,5 +50,6 @@ describe('AmbulanceService.update', () => {
       coordinates: [85.4123, 27.8123],
     });
     expect(updated.currentLocation.coordinates).toEqual([85.4123, 27.8123]);
+    expect(updated.locationUpdatedAt).toBeNull();
   });
 });

@@ -144,7 +144,7 @@ async function bootstrap() {
     }
   }
 
-  const PORT = configService.get<number>('PORT') ?? 4001;
+  const PORT = configService.get<number>('PORT') ?? 5002;
   await app.listen(PORT, '0.0.0.0');
   console.log(`API running on http://localhost:${PORT}/api`);
   if (NODE_ENV !== 'production' && process.env.SWAGGER_PASSWORD) {

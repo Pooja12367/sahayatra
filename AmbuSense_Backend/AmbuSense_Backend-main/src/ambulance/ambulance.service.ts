@@ -76,18 +76,6 @@ export class AmbulanceService implements OnModuleInit {
     this.trackingGateway?.emitAmbulanceStatusUpdated(data);
   }
 
-  private emitAmbulanceLocationUpdated(data: {
-    id: string;
-    currentLocation: {
-      type: 'Point';
-      coordinates: [number, number];
-    };
-    status: string;
-    updatedAt: Date;
-  }) {
-    this.trackingGateway?.emitAmbulanceLocationUpdated(data);
-  }
-
   async create(createAmbulanceDto: CreateAmbulanceDto) {
     const { coordinates, ...rest } = createAmbulanceDto;
     this.assertValidCoordinates(coordinates);
@@ -202,22 +190,31 @@ export class AmbulanceService implements OnModuleInit {
         type: 'Point',
         coordinates,
       };
+      ambulance.locationUpdatedAt = null;
     }
 
     const updated = await ambulance.save();
 
-    if (coordinates) {
-      this.emitAmbulanceLocationUpdated({
-        id: updated.id,
-        currentLocation: updated.currentLocation,
-        status: updated.status,
-        updatedAt: updated.updatedAt || new Date(),
-      });
-    }
-
     this.emitAmbulanceUpdated(updated);
 
     return updated;
+  }
+
+  async updateDriverLocation(
+    id: string,
+    coordinates: [number, number],
+    locationUpdatedAt: Date,
+  ) {
+    this.assertValidCoordinates(coordinates);
+    const ambulance = await this.ambulanceModel.findById(id);
+
+    if (!ambulance) {
+      throw new NotFoundException('Ambulance not found');
+    }
+
+    ambulance.currentLocation = { type: 'Point', coordinates };
+    ambulance.locationUpdatedAt = locationUpdatedAt;
+    return ambulance.save();
   }
 
   async updateStatus(

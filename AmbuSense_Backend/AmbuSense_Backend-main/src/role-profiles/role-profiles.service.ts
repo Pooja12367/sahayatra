@@ -74,7 +74,12 @@ export class RoleProfilesService {
       this.driverModel.countDocuments(filter).exec(),
     ]);
 
-    const phones = profiles
+    const profilesWithUsers = profiles.filter((profile) => {
+      const user = profile.user as unknown as { phone?: string } | null;
+      return Boolean(user && typeof user === 'object');
+    });
+
+    const phones = profilesWithUsers
       .map((profile) => {
         const user = profile.user as unknown as { phone?: string };
         return user.phone;
@@ -94,7 +99,7 @@ export class RoleProfilesService {
     });
 
     return {
-      data: profiles.map((profile) => {
+      data: profilesWithUsers.map((profile) => {
         const user = profile.user as unknown as { phone?: string };
         return this.sanitizeDriverForAdmin(
           profile,

@@ -26,13 +26,19 @@ const TripMapClient = dynamic(() => import("./TripMap.client"), {
   ),
 });
 
-type AmbulanceLocationUpdatedPayload = {
-  id?: string;
-  _id?: string;
-  currentLocation?: {
-    type: "Point";
-    coordinates: RouteCoordinates;
-  };
+type TrackingLocationPayload = {
+  requestId: string;
+  ambulanceId: string;
+  coordinates: RouteCoordinates;
+  timestamp?: string;
+};
+
+type TrackingJoinResponse = {
+  ok: boolean;
+  trackingActive: boolean;
+  ambulanceId?: string;
+  coordinates?: RouteCoordinates;
+  locationUpdatedAt?: string;
 };
 
 function getRequestId(request: EmergencyRequest) {
@@ -79,13 +85,18 @@ export function TripMap({ trip }: { trip: EmergencyRequest }) {
   const ambulanceId = getAmbulanceId(trip.assignedAmbulance);
   const [liveAmbulanceCoordinates, setLiveAmbulanceCoordinates] =
     useState<RouteCoordinates | null>(
-      trip.assignedAmbulance?.currentLocation?.coordinates ?? null,
+      trip.assignedAmbulance?.locationUpdatedAt
+        ? trip.assignedAmbulance.currentLocation?.coordinates ?? null
+        : null,
     );
+  const [locationUpdatedAt, setLocationUpdatedAt] = useState<string | null>(
+    trip.assignedAmbulance?.locationUpdatedAt ?? null,
+  );
+  const [trackingActive, setTrackingActive] = useState(false);
+  const [clockNow, setClockNow] = useState(Date.now());
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  const ambulanceCoordinates =
-    liveAmbulanceCoordinates ??
-    trip.assignedAmbulance?.currentLocation?.coordinates;
+  const ambulanceCoordinates = liveAmbulanceCoordinates;
   const pickupCoordinates = trip.pickupLocation?.coordinates;
   const hospitalCoordinates = trip.assignedHospital?.location?.coordinates;
   const hasCoordinates =
@@ -98,44 +109,99 @@ export function TripMap({ trip }: { trip: EmergencyRequest }) {
   );
 
   useEffect(() => {
-    setLiveAmbulanceCoordinates(null);
-  }, [ambulanceId, requestId]);
+    const storedLocationIsGps = Boolean(
+      trip.assignedAmbulance?.locationUpdatedAt,
+    );
+    setLiveAmbulanceCoordinates(
+      storedLocationIsGps
+        ? trip.assignedAmbulance?.currentLocation?.coordinates ?? null
+        : null,
+    );
+    setLocationUpdatedAt(
+      storedLocationIsGps
+        ? trip.assignedAmbulance?.locationUpdatedAt ?? null
+        : null,
+    );
+  }, [
+    ambulanceId,
+    requestId,
+    trip.assignedAmbulance?.locationUpdatedAt,
+    trip.status,
+  ]);
 
   useEffect(() => {
-    if (!ambulanceId) {
+    if (
+      !requestId ||
+      !ambulanceId ||
+      trip.status === "completed" ||
+      trip.status === "cancelled"
+    ) {
       return;
     }
 
-    const token = acquireSocketConnection();
-
-    const handleLocationUpdated = (
-      payload: AmbulanceLocationUpdatedPayload,
-    ) => {
-      const payloadId = payload.id ?? payload._id ?? "";
-
+    let mounted = true;
+    const joinRequestRoom = () => {
+      socket.emit(
+        "tracking.request.join",
+        { requestId },
+        (response: TrackingJoinResponse) => {
+          if (!mounted || !response?.ok) return;
+          setTrackingActive(response.trackingActive);
+          if (
+            response.trackingActive &&
+            response.ambulanceId === ambulanceId &&
+            response.locationUpdatedAt &&
+            isValidCoordinates(response.coordinates)
+          ) {
+            setLiveAmbulanceCoordinates(response.coordinates);
+            setLocationUpdatedAt(response.locationUpdatedAt ?? null);
+          }
+        },
+      );
+    };
+    const handleLocationUpdated = (payload: TrackingLocationPayload) => {
       if (
-        payloadId !== ambulanceId ||
-        !isValidCoordinates(payload.currentLocation?.coordinates)
+        payload.requestId !== requestId ||
+        payload.ambulanceId !== ambulanceId ||
+        !isValidCoordinates(payload.coordinates)
       ) {
         return;
       }
 
-      setLiveAmbulanceCoordinates(payload.currentLocation.coordinates);
-
-      if (requestId) {
-        queryClient.invalidateQueries({
-          queryKey: ["trip-route", "full", requestId],
-        });
-      }
+      setLiveAmbulanceCoordinates(payload.coordinates);
+      setLocationUpdatedAt(payload.timestamp ?? new Date().toISOString());
+      setTrackingActive(true);
+      queryClient.invalidateQueries({
+        queryKey: ["trip-route", "full", requestId],
+      });
     };
+    const handleTrackingStopped = (payload: { requestId: string }) => {
+      if (payload.requestId === requestId) setTrackingActive(false);
+    };
+    const handleDisconnect = () => setTrackingActive(false);
 
-    socket.on("ambulance.location.updated", handleLocationUpdated);
+    socket.on("connect", joinRequestRoom);
+    socket.on("disconnect", handleDisconnect);
+    socket.on("tracking.location.updated", handleLocationUpdated);
+    socket.on("tracking.stopped", handleTrackingStopped);
+    const token = acquireSocketConnection();
+    if (socket.connected) joinRequestRoom();
 
     return () => {
-      socket.off("ambulance.location.updated", handleLocationUpdated);
+      mounted = false;
+      socket.emit("tracking.request.leave", { requestId });
+      socket.off("connect", joinRequestRoom);
+      socket.off("disconnect", handleDisconnect);
+      socket.off("tracking.location.updated", handleLocationUpdated);
+      socket.off("tracking.stopped", handleTrackingStopped);
       releaseSocketConnection(token);
     };
-  }, [ambulanceId, queryClient, requestId]);
+  }, [ambulanceId, queryClient, requestId, trip.status]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 15000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Close fullscreen on Escape key
   useEffect(() => {
@@ -216,6 +282,17 @@ export function TripMap({ trip }: { trip: EmergencyRequest }) {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          <p aria-live="polite" className="text-sm text-muted-foreground">
+            {!locationUpdatedAt
+              ? trackingActive
+                ? "Waiting for driver's location..."
+                : trip.status === "assigned"
+                  ? "Waiting for driver to accept and start the trip."
+                : "Driver location unavailable."
+              : clockNow - new Date(locationUpdatedAt).getTime() > 30000
+                ? "Driver location unavailable. Last update is stale."
+                : `Live location updated ${Math.max(0, Math.floor((clockNow - new Date(locationUpdatedAt).getTime()) / 1000))} seconds ago.`}
+          </p>
           {!hasCoordinates ? (
             <MapState
               description="The map needs ambulance, pickup, and hospital coordinates before it can render."

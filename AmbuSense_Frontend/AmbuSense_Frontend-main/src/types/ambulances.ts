@@ -26,6 +26,7 @@ export type Ambulance = {
   phone: string;
   status: AmbulanceStatus;
   currentLocation: AmbulanceLocation;
+  locationUpdatedAt?: Nullable<string>;
   locationName?: string;
   isActive: boolean;
   assignedAt?: Nullable<string>;

@@ -572,7 +572,7 @@ export function PatientDashboardContent({
                       <TableHead className="w-[170px]">Ambulance</TableHead>
                       <TableHead className="w-[220px]">Hospital</TableHead>
                       <TableHead className="w-[170px]">Created</TableHead>
-                      <TableHead className="w-[90px] text-right">
+                      <TableHead className="w-[220px] text-right">
                         Actions
                       </TableHead>
                     </TableRow>
@@ -608,14 +608,30 @@ export function PatientDashboardContent({
                           </span>
                         </TableCell>
                         <TableCell className="text-right">
-                          <DropdownMenu
-                            side="top"
-                            trigger={
-                              <span className="inline-flex size-8 items-center justify-center rounded-lg border bg-background transition hover:bg-muted">
-                                <MoreHorizontal className="size-4" />
+                          <div className="flex items-center justify-end gap-2">
+                            {request.assignedAmbulance &&
+                            activeStatuses.includes(request.status) ? (
+                              <Button asChild size="sm" variant="outline">
+                                <Link
+                                  href={`/patient/requests/${getRequestId(request)}/track`}
+                                >
+                                  <Navigation className="size-4" />
+                                  Track Ambulance
+                                </Link>
+                              </Button>
+                            ) : request.status === "pending" ? (
+                              <span className="text-xs text-muted-foreground">
+                                Waiting for assignment
                               </span>
-                            }
-                          >
+                            ) : null}
+                            <DropdownMenu
+                              side="top"
+                              trigger={
+                                <span className="inline-flex size-8 items-center justify-center rounded-lg border bg-background transition hover:bg-muted">
+                                  <MoreHorizontal className="size-4" />
+                                </span>
+                              }
+                            >
                             <DropdownMenuItem
                               onClick={() => {
                                 setSelectedRequest(request);
@@ -624,12 +640,6 @@ export function PatientDashboardContent({
                             >
                               <Eye className="size-4" />
                               View details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => openTrackDialog(request)}
-                            >
-                              <Navigation className="size-4" />
-                              Track request
                             </DropdownMenuItem>
                             {canCancel(request) ? (
                               <DropdownMenuItem
@@ -640,7 +650,8 @@ export function PatientDashboardContent({
                                 Cancel
                               </DropdownMenuItem>
                             ) : null}
-                          </DropdownMenu>
+                            </DropdownMenu>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

@@ -65,7 +65,9 @@ export class RoutesService {
     private readonly configService: ConfigService,
     private readonly roleProfilesService: RoleProfilesService,
   ) {
-    this.osrmBaseUrl = this.configService.get<string>('OSRM_BASE_URL')!;
+    this.osrmBaseUrl =
+      this.configService.get<string>('OSRM_BASE_URL') ??
+      'https://router.project-osrm.org';
   }
 
   async getAmbulanceToRequestRoute(

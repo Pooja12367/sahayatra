@@ -14,6 +14,7 @@ export interface IAmbulance {
     type: 'Point';
     coordinates: [number, number];
   };
+  locationUpdatedAt?: Date | null;
   isActive: boolean;
   assignedAt?: Date | null;
   reachedPatientAt?: Date | null;
@@ -62,6 +63,9 @@ export class Ambulance {
     type: 'Point';
     coordinates: [number, number];
   };
+
+  @Prop({ type: Date, default: null })
+  locationUpdatedAt!: Date | null;
 
   @Prop({ default: true })
   isActive!: boolean;

@@ -147,7 +147,7 @@ function resolveMediaUrl(media: UploadedMedia | null) {
   }
 
   const apiBaseUrl =
-    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4008/api";
+    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5002/api";
   const origin = apiBaseUrl.replace(/\/api\/?$/, "");
 
   return `${origin}${media.url}`;
@@ -237,8 +237,9 @@ function getHospitalLabel(request: EmergencyRequest | null | undefined) {
 function isTrackableTrip(trip: EmergencyRequest | null | undefined) {
   return Boolean(
     trip &&
-      trip.status !== "completed" &&
-      trip.status !== "cancelled" &&
+      ["en-route", "at-patient", "transporting", "at-hospital"].includes(
+        trip.status,
+      ) &&
       getAmbulanceId(trip.assignedAmbulance),
   );
 }
@@ -832,6 +833,7 @@ function useDriverLiveLocationTracking({
   trip: EmergencyRequest | null | undefined;
 }) {
   const watcherRef = useRef<number | null>(null);
+  const lastLocationSentAtRef = useRef(0);
   const [lastKnownLocation, setLastKnownLocation] =
     useState<LastKnownLocation | null>(null);
   const [trackingMessage, setTrackingMessage] = useState(
@@ -839,6 +841,8 @@ function useDriverLiveLocationTracking({
   );
   const [isTrackingActive, setIsTrackingActive] = useState(false);
   const ambulanceId = getAmbulanceId(trip?.assignedAmbulance);
+  const requestId = trip?.id ?? trip?._id ?? "";
+  const tripStatus = trip?.status;
   const canTrack = isVerified && isTrackableTrip(trip);
 
   useEffect(() => {
@@ -857,18 +861,23 @@ function useDriverLiveLocationTracking({
       return;
     }
 
-    if (!trip) {
+    if (!trip || !requestId) {
       stopWatching("Live tracking starts when an active trip is assigned.");
       return;
     }
 
-    if (trip.status === "completed" || trip.status === "cancelled") {
+    if (tripStatus === "completed" || tripStatus === "cancelled") {
       stopWatching("Live tracking stopped because the trip is closed.");
       return;
     }
 
     if (!ambulanceId) {
       stopWatching("Live tracking needs an assigned ambulance.");
+      return;
+    }
+
+    if (!canTrack) {
+      stopWatching("Live tracking starts when the assigned trip is active.");
       return;
     }
 
@@ -900,12 +909,17 @@ function useDriverLiveLocationTracking({
         setTrackingMessage("Live tracking active");
         setIsTrackingActive(true);
 
-        socket.emit("ambulance.location.send", {
-          ambulanceId,
-          coordinates,
-          accuracy: position.coords.accuracy,
-          timestamp,
-        });
+        const now = Date.now();
+        if (now - lastLocationSentAtRef.current >= 5000) {
+          lastLocationSentAtRef.current = now;
+          socket.emit("ambulance.location.send", {
+            ambulanceId,
+            requestId,
+            coordinates,
+            accuracy: position.coords.accuracy,
+            timestamp,
+          });
+        }
       },
       (error) => {
         setIsTrackingActive(false);
@@ -933,7 +947,7 @@ function useDriverLiveLocationTracking({
       setIsTrackingActive(false);
       releaseSocketConnection(token);
     };
-  }, [ambulanceId, canTrack, isVerified, trip]);
+  }, [ambulanceId, canTrack, isVerified, requestId, tripStatus]);
 
   return {
     isTrackingActive,
