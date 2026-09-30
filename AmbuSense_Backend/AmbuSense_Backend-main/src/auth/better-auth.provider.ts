@@ -21,11 +21,27 @@ const dynamicImport = new Function(
 export type AmbuSenseAuth = Auth<ReturnType<typeof getBetterAuthOptions>>;
 
 function getFrontendUrl(configService: ConfigService) {
-  return (
+  const configuredUrl = (
     configService.get<string>('FRONTEND_URL') ??
-    configService.get<string>('APP_FRONTEND_URL') ??
-    'https://ambu-sense-frontend.vercel.app'
-  ).replace(/\/$/, '');
+    configService.get<string>('APP_FRONTEND_URL')
+  )?.trim();
+
+  if (!configuredUrl) {
+    throw new Error('FRONTEND_URL is required to send password reset links.');
+  }
+
+  let frontendUrl: URL;
+  try {
+    frontendUrl = new URL(configuredUrl);
+  } catch {
+    throw new Error('FRONTEND_URL must be a valid absolute URL.');
+  }
+
+  if (!['http:', 'https:'].includes(frontendUrl.protocol)) {
+    throw new Error('FRONTEND_URL must use HTTP or HTTPS.');
+  }
+
+  return frontendUrl.toString().replace(/\/$/, '');
 }
 
 function maskEmail(email: string) {
@@ -168,6 +184,7 @@ function getBetterAuthOptions(
     Number.isFinite(configuredExpiry) && configuredExpiry > 0
       ? configuredExpiry
       : 3600;
+  const frontendUrl = getFrontendUrl(configService);
 
   return {
     secret: configService.get<string>('BETTER_AUTH_SECRET'),
@@ -183,7 +200,6 @@ function getBetterAuthOptions(
         console.log(
           `[auth] Password reset token generated for ${maskEmail(user.email)}`,
         );
-        const frontendUrl = getFrontendUrl(configService);
         const resetUrl = `${frontendUrl}/reset-password?token=${encodeURIComponent(
           token,
         )}`;

@@ -31,6 +31,22 @@
 $ npm install
 ```
 
+## Password reset and deployment configuration
+
+Copy `.env.example` to `.env` for local development. Set `FRONTEND_URL` to the
+frontend's public base URL (locally, `http://localhost:3000`). Password reset
+emails link to `${FRONTEND_URL}/reset-password?token=...`; the token remains
+managed by Better Auth and expires after `RESET_PASSWORD_TOKEN_EXPIRES_IN`
+seconds (3600 by default).
+
+For deployment, set `FRONTEND_URL` to the deployed frontend origin, such as
+`https://your-frontend.example.com`, and set `BETTER_AUTH_URL` to the deployed
+backend origin. Configure the frontend's `NEXT_PUBLIC_API_URL` to the deployed
+backend API URL ending in `/api`. The configured frontend origin is allowed by
+the backend's HTTP and Socket.IO CORS checks. Configure the database, auth
+secret, and SMTP credentials in the hosting provider's environment settings;
+do not commit them.
+
 ## Compile and run the project
 
 ```bash

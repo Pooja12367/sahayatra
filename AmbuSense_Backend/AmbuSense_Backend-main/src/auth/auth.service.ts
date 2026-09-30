@@ -269,7 +269,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     this.assertAuthResponseOk(authResponse, payload);
 
     return {
-      message: 'Password reset successfully.',
+      message: 'Your password has been reset successfully.',
     };
   }
 

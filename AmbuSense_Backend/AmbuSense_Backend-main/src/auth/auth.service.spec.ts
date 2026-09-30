@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { UserRole } from '../constants/enums';
 import { AuthService } from './auth.service';
@@ -27,12 +28,13 @@ describe('AuthService default admin bootstrap', () => {
 
 describe('SignupDto validation', () => {
   it('accepts valid patient signup values', async () => {
-    const dto = new SignupDto();
-    dto.fullName = 'Sita Tamang';
-    dto.email = 'SITA@GMAIL.COM';
-    dto.phone = '+9779841234567';
-    dto.password = 'Sita123!';
-    dto.role = UserRole.PATIENT;
+    const dto = plainToInstance(SignupDto, {
+      fullName: 'Sita Tamang',
+      email: 'SITA@GMAIL.COM',
+      phone: '+9779841234567',
+      password: 'Sita123!',
+      role: UserRole.PATIENT,
+    });
 
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);

@@ -28,13 +28,38 @@ import {
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
 import { UserDocument } from '../users/entities/user.entity';
 
+function isAllowedOrigin(origin?: string) {
+  if (!origin) return true;
+
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'https://ambu-sense-frontend.vercel.app',
+    'https://ambusense-frontend.vercel.app',
+  ];
+  const configuredFrontendUrl =
+    process.env.FRONTEND_URL ?? process.env.APP_FRONTEND_URL;
+
+  if (configuredFrontendUrl) {
+    try {
+      allowedOrigins.push(new URL(configuredFrontendUrl).origin);
+    } catch {
+      return false;
+    }
+  }
+
+  return allowedOrigins.includes(origin);
+}
+
 @WebSocketGateway({
   cors: {
-    origin: [
-      'http://localhost:3000',
-      'https://ambu-sense-frontend.vercel.app',
-      'https://ambusense-frontend.vercel.app',
-    ],
+    origin: (origin, callback) => {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error('Not allowed by CORS'), false);
+    },
     credentials: true,
   },
 })
