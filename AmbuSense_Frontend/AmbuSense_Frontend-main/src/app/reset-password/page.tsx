@@ -28,6 +28,24 @@ const resetPasswordSchema = z
 
 type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>;
 
+function getResetPasswordErrorMessage(error: unknown) {
+  const message = getFriendlyApiErrorMessage(error);
+  const normalizedMessage = message.toLowerCase();
+
+  if (normalizedMessage.includes("expired")) {
+    return "This reset link has expired. Please request a new one.";
+  }
+
+  if (
+    normalizedMessage.includes("invalid token") ||
+    normalizedMessage.includes("invalid_token")
+  ) {
+    return "This reset link is invalid, expired, or has already been used. Please request a new one.";
+  }
+
+  return message;
+}
+
 function ResetPasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -43,7 +61,7 @@ function ResetPasswordContent() {
 
   async function onSubmit(values: ResetPasswordFormValues) {
     if (!token) {
-      toast.error("This reset link is missing its token.");
+      toast.error("This reset link is missing its token. Please request a new one.");
       return;
     }
 
@@ -55,14 +73,14 @@ function ResetPasswordContent() {
       toast.success(response.message);
       router.replace("/login");
     } catch (error) {
-      toast.error(getFriendlyApiErrorMessage(error));
+      toast.error(getResetPasswordErrorMessage(error));
     }
   }
 
   if (!token) {
     return (
       <AuthCard
-        description="The reset link is missing or incomplete. Please request a fresh password reset link."
+        description="This reset link is missing its token. Please request a new one."
         title="Invalid reset link"
       >
         <Button
