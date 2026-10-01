@@ -3,7 +3,10 @@ import type { NextConfig } from "next";
 const backendApiUrl = new URL(
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:5002/api",
 );
-const backendApiPath = backendApiUrl.pathname.replace(/\/+$/, "");
+const configuredApiPath = backendApiUrl.pathname.replace(/\/+$/, "");
+const backendApiPath = configuredApiPath.endsWith("/api")
+  ? configuredApiPath
+  : `${configuredApiPath}/api`;
 
 const nextConfig: NextConfig = {
   async rewrites() {
