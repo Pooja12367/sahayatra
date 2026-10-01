@@ -57,7 +57,7 @@ function resolveMediaUrl(url: string | null | undefined) {
   }
 
   const apiBaseUrl =
-    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5002/api";
+  process.env.NEXT_PUBLIC_API_URL || "https://sahayatra-backend-fa4y.onrender.com/api"
   const origin = apiBaseUrl.replace(/\/api\/?$/, "");
 
   return `${origin}${url}`;

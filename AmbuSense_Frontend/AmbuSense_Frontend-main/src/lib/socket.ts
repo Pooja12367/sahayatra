@@ -3,7 +3,7 @@ import { io } from "socket.io-client";
 export const socket = io(
   process.env.NEXT_PUBLIC_SOCKET_URL ??
     process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/?$/, "") ??
-    "http://localhost:5002",
+    "https://sahayatra-backend-fa4y.onrender.com",
   {
     withCredentials: true,
     autoConnect: false,
