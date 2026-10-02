@@ -19,7 +19,7 @@ import {
   Hospital,
   HospitalDocument,
 } from '../hospital/entities/hospital.entity';
-import { UserRole } from '../constants/enums';
+import { AmbulanceStatus, UserRole } from '../constants/enums';
 import type { UserDocument } from '../users/entities/user.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
 import { getNepalPhoneVariants } from '../users/phone.util';
@@ -185,10 +185,30 @@ export class RoutesService {
         user._id as Types.ObjectId,
       );
 
-      const ambulance = await this.ambulanceModel.findOne({
+      const driverName = user.fullName?.trim();
+      const escapedDriverName = driverName?.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        '\\$&',
+      );
+      const namedAmbulances = escapedDriverName
+        ? await this.ambulanceModel
+            .find({
+              driverName: new RegExp(`^${escapedDriverName}$`, 'i'),
+              isActive: true,
+              status: { $ne: AmbulanceStatus.COMPLETED },
+            })
+            .limit(2)
+            .exec()
+        : [];
+
+      if (namedAmbulances.length > 1) {
+        throw new NotFoundException('Ambulance assignment is ambiguous');
+      }
+
+      const ambulance = namedAmbulances[0] ?? (await this.ambulanceModel.findOne({
         phone: { $in: getNepalPhoneVariants(user.phone) },
         isActive: true,
-      });
+      }));
 
       if (!ambulance) {
         throw new NotFoundException('Ambulance not found');

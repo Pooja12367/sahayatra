@@ -27,7 +27,6 @@ import {
 } from '../emergency-request/entities/emergency-request.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
 import { UserDocument } from '../users/entities/user.entity';
-import { areNepalPhoneNumbersEqual } from '../users/phone.util';
 
 function isAllowedOrigin(origin?: string) {
   if (!origin) return true;
@@ -353,9 +352,9 @@ export class TrackingGateway
       user._id as Types.ObjectId,
     );
 
-    const ambulance = await this.ambulanceService.findOne(ambulanceId);
+    const ambulance = await this.ambulanceService.findDriverAmbulance(user);
 
-    if (!areNepalPhoneNumbersEqual(ambulance.phone, user.phone) || !ambulance.isActive) {
+    if (ambulance.id !== ambulanceId || !ambulance.isActive) {
       throw new ForbiddenException('Cannot update another driver ambulance');
     }
   }

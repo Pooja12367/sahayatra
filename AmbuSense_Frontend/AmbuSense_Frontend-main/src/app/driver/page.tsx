@@ -259,7 +259,7 @@ function EmergencyAlertOverlay({
   isStatusPending: boolean;
   isRejectPending: boolean;
   onStatusUpdate: (status: EmergencyRequestStatus) => void;
-  onTripReject: () => void;
+  onTripReject: (requestId: string) => void;
   trip: EmergencyRequest;
 }) {
   if (typeof document === "undefined") return null;
@@ -389,7 +389,7 @@ function EmergencyAlertOverlay({
         <button
           disabled={isStatusPending || isRejectPending}
           id="emergency-reject-btn"
-          onClick={onTripReject}
+          onClick={() => onTripReject(getRequestId(trip))}
           style={{
             padding: "1.1rem",
             borderRadius: "1rem",
@@ -434,7 +434,7 @@ function DriverTripPanel({
   isTrackingActive: boolean;
   lastKnownLocation: LastKnownLocation | null;
   onStatusUpdate: (status: EmergencyRequestStatus) => void;
-  onTripReject: () => void;
+  onTripReject: (requestId: string) => void;
   queryError: unknown;
   queryIsError: boolean;
   queryIsLoading: boolean;
@@ -488,7 +488,7 @@ function DriverTripPanel({
     }
 
     const triggerReject = () => {
-      onTripRejectRef.current();
+      onTripRejectRef.current(getRequestId(trip));
       toast.info("Trip auto-rejected and forwarded to another driver due to inactivity", { duration: 5000 });
     };
 
@@ -501,7 +501,7 @@ function DriverTripPanel({
         navigator.vibrate(0); // stop any in-progress vibration
       }
     };
-  }, [isAssigned, trip?.assignedAt]);
+  }, [isAssigned, isStatusPending, trip?._id, trip?.id]);
 
   if (queryIsLoading) {
     return (
@@ -653,7 +653,7 @@ function DriverTripPanel({
                   <Button
                     className="w-full bg-red-600 text-white hover:bg-red-700 font-semibold shadow-sm"
                     disabled={isStatusPending || isRejectPending}
-                    onClick={onTripReject}
+                    onClick={() => onTripReject(getRequestId(trip))}
                     type="button"
                   >
                     {isRejectPending ? "Rejecting..." : "✕ Reject"}
@@ -735,7 +735,7 @@ function DriverTripPanel({
         </Card>
       </div>
 
-      <TripMap trip={trip} />
+      <TripMap driverLocation={lastKnownLocation} trip={trip} />
     </div>
   );
 }
@@ -755,7 +755,7 @@ function TripDetail({
         {icon}
         {label}
       </p>
-      <p className="mt-1 break-words font-medium">{value}</p>
+      <div className="mt-1 break-words font-medium">{value}</div>
     </div>
   );
 }
@@ -1095,8 +1095,7 @@ export function DriverDashboardContent({
     }
   }
 
-  async function handleTripReject() {
-    const requestId = getRequestId(activeTrip);
+  async function handleTripReject(requestId: string) {
     if (!requestId) {
       toast.error("Trip ID is missing");
       return;

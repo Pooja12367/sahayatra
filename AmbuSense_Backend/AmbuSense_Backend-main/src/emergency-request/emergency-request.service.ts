@@ -129,53 +129,10 @@ export class EmergencyRequestService implements OnModuleInit {
         HospitalAssignmentTechnique.USER_CHOICE;
     }
 
-    const assignedAt = new Date();
-    const nearestAmbulance = await this.claimNearestAvailableAmbulance(
-      coordinates,
-      assignedAt,
-    );
-
-    if (nearestAmbulance) {
-      requestData.assignedAmbulance = nearestAmbulance._id as Types.ObjectId;
-      requestData.status = EmergencyRequestStatus.ASSIGNED;
-      requestData.assignedAt = assignedAt;
-
-      if (!requestData.assignedHospital) {
-        const nearestHospital =
-          await this.findNearestValidHospital(coordinates);
-
-        if (!nearestHospital) {
-          await this.releaseAmbulance(nearestAmbulance._id as Types.ObjectId);
-          throw new NotFoundException('No available hospital found');
-        }
-
-        requestData.assignedHospital = nearestHospital._id as Types.ObjectId;
-        requestData.hospitalAssignmentTechnique =
-          HospitalAssignmentTechnique.SYSTEM_AUTO;
-      }
-
-      if (requestData.assignedHospital) {
-        const reserved = await this.reserveHospitalBed(
-          requestData.assignedHospital,
-        );
-
-        if (!reserved) {
-          await this.releaseAmbulance(nearestAmbulance._id as Types.ObjectId);
-          throw new BadRequestException('No available hospital beds found');
-        }
-
-        requestData.hospitalBedReserved = true;
-      }
-    }
-
     const created = await this.emergencyRequestModel.create(requestData);
 
     const result = await this.findOne(created.id);
     this.emitEmergencyRequestCreated(result);
-
-    if (result.status === EmergencyRequestStatus.ASSIGNED) {
-      this.emitEmergencyRequestDispatched(result);
-    }
 
     return result;
   }
@@ -607,6 +564,46 @@ export class EmergencyRequestService implements OnModuleInit {
   async findMyTrip(user: UserDocument) {
     await this.assertDriverVerified(user);
 
+    const driverName = user.fullName?.trim();
+    const namedAmbulances = driverName
+      ? await this.ambulanceModel
+          .find({
+            driverName: new RegExp(`^${this.escapeRegex(driverName)}$`, 'i'),
+            isActive: true,
+          })
+          .select('_id')
+          .exec()
+      : [];
+    const ambulanceCandidates = namedAmbulances.length
+      ? namedAmbulances
+      : await this.ambulanceModel
+          .find({
+            phone: { $in: getNepalPhoneVariants(user.phone) },
+            isActive: true,
+          })
+          .select('_id')
+          .exec();
+
+    if (ambulanceCandidates.length === 0) {
+      return [];
+    }
+
+    const activeRequest = await this.emergencyRequestModel.exists({
+      assignedAmbulance: {
+        $in: ambulanceCandidates.map((ambulance) => ambulance._id),
+      },
+      status: {
+        $nin: [
+          EmergencyRequestStatus.COMPLETED,
+          EmergencyRequestStatus.CANCELLED,
+        ],
+      },
+    });
+
+    if (!activeRequest) {
+      return [];
+    }
+
     const ambulance = await this.findDriverAmbulance(user);
     return this.emergencyRequestModel
       .find({
@@ -678,10 +675,6 @@ export class EmergencyRequestService implements OnModuleInit {
     this.emitEmergencyRequestUpdated(result);
 
     // Try to assign to next nearest ambulance (excluding rejected ones)
-    this.tryAssignPendingRequests().catch((err) => {
-      console.error('[RejectMyTrip] Auto-assign error:', err);
-    });
-
     return { message: 'Trip rejected successfully' };
   }
 
@@ -709,6 +702,69 @@ export class EmergencyRequestService implements OnModuleInit {
   private async findDriverAmbulance(
     user: UserDocument,
   ): Promise<AmbulanceDocument> {
+    const driverName = user.fullName?.trim();
+    if (driverName) {
+      const namedAmbulances = await this.ambulanceModel
+        .find({
+          driverName: new RegExp(`^${this.escapeRegex(driverName)}$`, 'i'),
+          isActive: true,
+        })
+        .exec();
+
+      if (namedAmbulances.length > 1) {
+        const activeRequestAmbulanceIds = await this.emergencyRequestModel.distinct(
+          'assignedAmbulance',
+          {
+            assignedAmbulance: {
+              $in: namedAmbulances.map((ambulance) => ambulance._id),
+            },
+            status: {
+              $in: [
+                EmergencyRequestStatus.ASSIGNED,
+                EmergencyRequestStatus.EN_ROUTE,
+                EmergencyRequestStatus.AT_PATIENT,
+                EmergencyRequestStatus.TRANSPORTING,
+                EmergencyRequestStatus.AT_HOSPITAL,
+              ],
+            },
+          },
+        );
+        const requestAssignedAmbulances = namedAmbulances.filter((ambulance) =>
+          activeRequestAmbulanceIds.some(
+            (ambulanceId) => ambulanceId.toString() === ambulance._id.toString(),
+          ),
+        );
+
+        if (requestAssignedAmbulances.length === 1) {
+          return requestAssignedAmbulances[0];
+        }
+
+        if (requestAssignedAmbulances.length > 1) {
+          throw new NotFoundException(
+            'Driver ambulance assignment is ambiguous',
+          );
+        }
+      }
+
+      const currentNamedAmbulances = namedAmbulances.filter(
+        (ambulance) => ambulance.status !== AmbulanceStatus.COMPLETED,
+      );
+
+      if (currentNamedAmbulances.length > 1) {
+        throw new NotFoundException(
+          'Driver ambulance assignment is ambiguous',
+        );
+      }
+
+      if (currentNamedAmbulances.length === 1) {
+        return currentNamedAmbulances[0];
+      }
+
+      if (namedAmbulances.length > 0) {
+        throw new NotFoundException('Driver ambulance not found');
+      }
+    }
+
     const ambulance = await this.ambulanceModel.findOne({
       phone: { $in: getNepalPhoneVariants(user.phone) },
       isActive: true,
@@ -928,12 +984,6 @@ export class EmergencyRequestService implements OnModuleInit {
    */
   private async releaseAmbulance(ambulanceId: Types.ObjectId) {
     await this.releaseAmbulanceCore(ambulanceId);
-
-    // Fire-and-forget: try to assign any waiting pending requests.
-    // Must not await — we don't want to block the caller's response.
-    this.tryAssignPendingRequests().catch((err) => {
-      console.error('[EmergencyRequestService] Auto-assign error after release:', err);
-    });
   }
 
   /**
@@ -956,97 +1006,6 @@ export class EmergencyRequestService implements OnModuleInit {
     ambulance.completedAt = null;
 
     await ambulance.save();
-  }
-
-  /**
-   * Scans for pending (unassigned) emergency requests and attempts to dispatch
-   * each one using the nearest available ambulance + hospital.
-   *
-   * Invariant enforced: an available ambulance and a pending request must
-   * never co-exist — this method is called every time an ambulance becomes free.
-   *
-   * Public so that AmbulanceService can also call it when a driver manually
-   * sets their ambulance back to AVAILABLE via the status update endpoint.
-   */
-  async tryAssignPendingRequests(): Promise<void> {
-    console.log('[AutoAssign] tryAssignPendingRequests() called');
-
-    const pendingRequests = await this.emergencyRequestModel
-      .find({
-        status: EmergencyRequestStatus.PENDING,
-        assignedAmbulance: null,
-      })
-      .sort({ createdAt: 1 }) // oldest first
-      .limit(10);
-
-    console.log(`[AutoAssign] Found ${pendingRequests.length} pending request(s)`);
-
-    for (const request of pendingRequests) {
-      try {
-        const pickupCoords = request.pickupLocation.coordinates;
-        const assignedAt = new Date();
-
-        console.log(`[AutoAssign] Trying request ${request._id} at coords ${pickupCoords}`);
-
-        const ambulance = await this.claimNearestAvailableAmbulance(
-          pickupCoords,
-          assignedAt,
-          (request.rejectedAmbulances ?? []) as Types.ObjectId[],
-        );
-
-        if (!ambulance) {
-          console.log('[AutoAssign] No available ambulance found — stopping.');
-          break;
-        }
-
-        console.log(`[AutoAssign] Claimed ambulance ${ambulance._id} (${ambulance.ambulanceCode})`);
-
-        // Determine hospital (respect user-chosen hospital if already set)
-        let hospitalId: Types.ObjectId | null = request.assignedHospital
-          ? (request.assignedHospital as Types.ObjectId)
-          : null;
-
-        if (!hospitalId) {
-          const hospital = await this.findNearestValidHospital(pickupCoords);
-
-          if (!hospital) {
-            console.log('[AutoAssign] No valid hospital found — releasing ambulance.');
-            await this.releaseAmbulanceCore(ambulance._id as Types.ObjectId);
-            continue;
-          }
-
-          console.log(`[AutoAssign] Found hospital ${hospital._id} (${hospital.name})`);
-          hospitalId = hospital._id as Types.ObjectId;
-          request.hospitalAssignmentTechnique =
-            HospitalAssignmentTechnique.SYSTEM_AUTO;
-        }
-
-        const reserved = await this.reserveHospitalBed(hospitalId);
-
-        if (!reserved) {
-          console.log('[AutoAssign] Hospital bed reservation failed — releasing ambulance.');
-          await this.releaseAmbulanceCore(ambulance._id as Types.ObjectId);
-          continue;
-        }
-
-        request.assignedAmbulance = ambulance._id as Types.ObjectId;
-        request.assignedHospital = hospitalId;
-        request.status = EmergencyRequestStatus.ASSIGNED;
-        request.assignedAt = assignedAt;
-        request.hospitalBedReserved = true;
-
-        await request.save();
-
-        console.log(`[AutoAssign] ✅ Request ${request._id} assigned to ambulance ${ambulance.ambulanceCode}`);
-
-        const result = await this.findOne(request.id);
-        this.emitEmergencyRequestDispatched(result);
-      } catch (error) {
-        console.error('[AutoAssign] Error processing request:', error);
-      }
-    }
-
-    console.log('[AutoAssign] tryAssignPendingRequests() complete');
   }
 
   private async reserveHospitalBed(

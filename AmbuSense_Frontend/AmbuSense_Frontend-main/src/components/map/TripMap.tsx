@@ -79,18 +79,29 @@ function formatDuration(value: number | undefined) {
   return `${Math.max(1, Math.round(value / 60))} min`;
 }
 
-export function TripMap({ trip }: { trip: EmergencyRequest }) {
+export function TripMap({
+  trip,
+  driverLocation,
+}: {
+  trip: EmergencyRequest;
+  driverLocation?: {
+    coordinates: RouteCoordinates;
+    timestamp: string;
+  } | null;
+}) {
   const queryClient = useQueryClient();
   const requestId = getRequestId(trip);
   const ambulanceId = getAmbulanceId(trip.assignedAmbulance);
   const [liveAmbulanceCoordinates, setLiveAmbulanceCoordinates] =
     useState<RouteCoordinates | null>(
-      trip.assignedAmbulance?.locationUpdatedAt
-        ? trip.assignedAmbulance.currentLocation?.coordinates ?? null
-        : null,
+      driverLocation?.coordinates ??
+        trip.assignedAmbulance?.currentLocation?.coordinates ??
+        null,
     );
   const [locationUpdatedAt, setLocationUpdatedAt] = useState<string | null>(
-    trip.assignedAmbulance?.locationUpdatedAt ?? null,
+    driverLocation?.timestamp ??
+      trip.assignedAmbulance?.locationUpdatedAt ??
+      null,
   );
   const [trackingActive, setTrackingActive] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
@@ -109,21 +120,20 @@ export function TripMap({ trip }: { trip: EmergencyRequest }) {
   );
 
   useEffect(() => {
-    const storedLocationIsGps = Boolean(
-      trip.assignedAmbulance?.locationUpdatedAt,
-    );
     setLiveAmbulanceCoordinates(
-      storedLocationIsGps
-        ? trip.assignedAmbulance?.currentLocation?.coordinates ?? null
-        : null,
+      driverLocation?.coordinates ??
+        trip.assignedAmbulance?.currentLocation?.coordinates ??
+        null,
     );
     setLocationUpdatedAt(
-      storedLocationIsGps
-        ? trip.assignedAmbulance?.locationUpdatedAt ?? null
-        : null,
+      driverLocation?.timestamp ??
+        trip.assignedAmbulance?.locationUpdatedAt ??
+        null,
     );
   }, [
     ambulanceId,
+    driverLocation?.coordinates,
+    driverLocation?.timestamp,
     requestId,
     trip.assignedAmbulance?.locationUpdatedAt,
     trip.status,
@@ -150,7 +160,6 @@ export function TripMap({ trip }: { trip: EmergencyRequest }) {
           if (
             response.trackingActive &&
             response.ambulanceId === ambulanceId &&
-            response.locationUpdatedAt &&
             isValidCoordinates(response.coordinates)
           ) {
             setLiveAmbulanceCoordinates(response.coordinates);

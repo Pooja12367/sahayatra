@@ -17,7 +17,6 @@ import { TrackingGateway } from '../gateway/tracking.gateway';
 import { FindAmbulancesQueryDto } from './dto/find-ambulances-query.dto';
 import type { UserDocument } from '../users/entities/user.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
-import { EmergencyRequestService } from '../emergency-request/emergency-request.service';
 import { getNepalPhoneVariants } from '../users/phone.util';
 
 const ALLOWED_STATUS_TRANSITIONS: Record<AmbulanceStatus, AmbulanceStatus[]> = {
@@ -40,7 +39,6 @@ const ALLOWED_STATUS_TRANSITIONS: Record<AmbulanceStatus, AmbulanceStatus[]> = {
 @Injectable()
 export class AmbulanceService implements OnModuleInit {
   private trackingGateway?: TrackingGateway;
-  private emergencyRequestService?: EmergencyRequestService;
 
   constructor(
     @InjectModel(Ambulance.name)
@@ -51,11 +49,6 @@ export class AmbulanceService implements OnModuleInit {
 
   onModuleInit() {
     this.trackingGateway = this.moduleRef.get(TrackingGateway, {
-      strict: false,
-    });
-    // Lazy inject to avoid circular dependency — EmergencyRequestModule
-    // already imports AmbulanceModule indirectly through Mongoose models.
-    this.emergencyRequestService = this.moduleRef.get(EmergencyRequestService, {
       strict: false,
     });
   }
@@ -293,20 +286,6 @@ export class AmbulanceService implements OnModuleInit {
 
     this.emitAmbulanceUpdated(updated);
 
-    // Enforce the invariant: no available ambulance should co-exist with a
-    // pending request.  Triggered whenever the ambulance becomes free so that
-    // waiting requests are picked up immediately without slack time.
-    if (nextStatus === AmbulanceStatus.AVAILABLE) {
-      console.log('[AmbulanceService] Ambulance became AVAILABLE, triggering auto-assign...');
-      if (!this.emergencyRequestService) {
-        console.error('[AmbulanceService] emergencyRequestService is NOT injected — auto-assign skipped!');
-      } else {
-        this.emergencyRequestService.tryAssignPendingRequests().catch((err) => {
-          console.error('[AmbulanceService] Auto-assign error:', err);
-        });
-      }
-    }
-
     return updated;
   }
 
@@ -354,6 +333,28 @@ export class AmbulanceService implements OnModuleInit {
   }
 
   async findDriverAmbulance(user: UserDocument): Promise<AmbulanceDocument> {
+    const driverName = user.fullName?.trim();
+    if (driverName) {
+      const namedAmbulances = await this.ambulanceModel
+        .find({
+          driverName: new RegExp(`^${this.escapeRegex(driverName)}$`, 'i'),
+          isActive: true,
+          status: { $ne: AmbulanceStatus.COMPLETED },
+        })
+        .limit(2)
+        .exec();
+
+      if (namedAmbulances.length > 1) {
+        throw new NotFoundException(
+          'Driver ambulance assignment is ambiguous',
+        );
+      }
+
+      if (namedAmbulances.length === 1) {
+        return namedAmbulances[0];
+      }
+    }
+
     const ambulance = await this.ambulanceModel.findOne({
       phone: { $in: getNepalPhoneVariants(user.phone) },
       isActive: true,
@@ -374,13 +375,9 @@ export class AmbulanceService implements OnModuleInit {
       user._id as Types.ObjectId,
     );
 
-    const ambulance = await this.ambulanceModel.findOne({
-      _id: ambulanceId,
-      phone: { $in: getNepalPhoneVariants(user.phone) },
-      isActive: true,
-    });
+    const ambulance = await this.findDriverAmbulance(user);
 
-    if (!ambulance) {
+    if (ambulance._id.toString() !== ambulanceId) {
       throw new NotFoundException('Ambulance not found');
     }
   }

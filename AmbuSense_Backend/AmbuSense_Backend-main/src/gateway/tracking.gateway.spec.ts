@@ -31,6 +31,7 @@ function createGateway(
   } as unknown as Server;
   const ambulanceService = {
     findOne: jest.fn().mockResolvedValue(ambulance),
+    findDriverAmbulance: jest.fn().mockResolvedValue(ambulance),
     updateDriverLocation: jest.fn().mockImplementation(
       async (_id: string, coordinates: [number, number], updatedAt: Date) => ({
         ...ambulance,
@@ -230,6 +231,53 @@ describe('TrackingGateway request-scoped tracking', () => {
       }),
     );
     expect(context.server.emit).not.toHaveBeenCalled();
+  });
+
+  it('does not route one request location to another request on the same ambulance', async () => {
+    const driverId = '65f1a6f2c3b7a91d2e4f5684';
+    const requestAId = '65f1a6f2c3b7a91d2e4f5681';
+    const requestBId = '65f1a6f2c3b7a91d2e4f5685';
+    const context = createGateway(
+      {
+        _id: driverId,
+        role: UserRole.DRIVER,
+        phone: '9817404665',
+      } as unknown as UserDocument,
+      {
+        id: requestAId,
+        assignedAmbulance: '65f1a6f2c3b7a91d2e4f5680',
+        status: 'en-route',
+      },
+    );
+    const socket = createSocket();
+    const timestamp = new Date().toISOString();
+    context.emergencyRequestModel.findOne = jest.fn().mockResolvedValue(null);
+
+    const result = await context.gateway.handleAmbulanceLocationSend(
+      {
+        ambulanceId: context.ambulance.id,
+        requestId: requestBId,
+        coordinates: [85.4, 27.8],
+        timestamp,
+      },
+      socket,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'No active trip assigned to this driver',
+    });
+    expect(context.emergencyRequestModel.findOne).toHaveBeenCalledWith({
+      _id: requestBId,
+      assignedAmbulance: context.ambulance._id,
+      status: {
+        $in: ['en-route', 'at-patient', 'transporting', 'at-hospital'],
+      },
+    });
+    expect(
+      context.ambulanceService.updateDriverLocation,
+    ).not.toHaveBeenCalled();
+    expect(context.server.to).not.toHaveBeenCalled();
   });
 
   it('rejects GPS from an unauthenticated socket', async () => {
