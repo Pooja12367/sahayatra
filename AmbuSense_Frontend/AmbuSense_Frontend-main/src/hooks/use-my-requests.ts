@@ -1,7 +1,17 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import {
+  acquireSocketConnection,
+  releaseSocketConnection,
+  socket,
+} from "@/lib/socket";
 import type {
   CancelEmergencyRequestPayload,
   CreateEmergencyRequestPayload,
@@ -24,7 +34,8 @@ export function useMyRequests() {
 }
 
 export function useMyRequest(requestId: string | null) {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const requestQuery = useQuery({
     enabled: Boolean(requestId),
     queryKey: requestId ? myRequestKeys.detail(requestId) : ["my-requests", ""],
     queryFn: async () => {
@@ -33,7 +44,32 @@ export function useMyRequest(requestId: string | null) {
       );
       return data;
     },
+    refetchInterval: 5000,
   });
+
+  useEffect(() => {
+    if (!requestId) return;
+
+    const handleRequestChanged = (payload: { id: string }) => {
+      if (payload.id === requestId) {
+        void queryClient.invalidateQueries({
+          queryKey: myRequestKeys.detail(requestId),
+        });
+      }
+    };
+
+    socket.on("emergency.request.updated", handleRequestChanged);
+    socket.on("emergency.request.dispatched", handleRequestChanged);
+    const token = acquireSocketConnection();
+
+    return () => {
+      socket.off("emergency.request.updated", handleRequestChanged);
+      socket.off("emergency.request.dispatched", handleRequestChanged);
+      releaseSocketConnection(token);
+    };
+  }, [queryClient, requestId]);
+
+  return requestQuery;
 }
 
 export function useCreateEmergencyRequest() {

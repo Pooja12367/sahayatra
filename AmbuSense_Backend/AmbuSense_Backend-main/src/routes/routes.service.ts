@@ -22,6 +22,7 @@ import {
 import { UserRole } from '../constants/enums';
 import type { UserDocument } from '../users/entities/user.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
+import { getNepalPhoneVariants } from '../users/phone.util';
 
 type Coordinates = [number, number];
 
@@ -185,7 +186,7 @@ export class RoutesService {
       );
 
       const ambulance = await this.ambulanceModel.findOne({
-        phone: user.phone,
+        phone: { $in: getNepalPhoneVariants(user.phone) },
         isActive: true,
       });
 

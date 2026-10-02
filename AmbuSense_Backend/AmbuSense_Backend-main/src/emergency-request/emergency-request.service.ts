@@ -34,6 +34,7 @@ import { FindEmergencyRequestsQueryDto } from './dto/find-emergency-requests-que
 import { TrackingGateway } from '../gateway/tracking.gateway';
 import { UserDocument } from '../users/entities/user.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
+import { getNepalPhoneVariants } from '../users/phone.util';
 
 @Injectable()
 export class EmergencyRequestService implements OnModuleInit {
@@ -607,8 +608,8 @@ export class EmergencyRequestService implements OnModuleInit {
     await this.assertDriverVerified(user);
 
     const ambulance = await this.findDriverAmbulance(user);
-    const request = await this.emergencyRequestModel
-      .findOne({
+    return this.emergencyRequestModel
+      .find({
         assignedAmbulance: ambulance._id,
         status: {
           $nin: [
@@ -620,27 +621,36 @@ export class EmergencyRequestService implements OnModuleInit {
       .populate('assignedAmbulance')
       .populate('assignedHospital')
       .sort({ assignedAt: -1, createdAt: -1 });
-
-    if (!request) {
-      throw new NotFoundException('Assigned trip not found');
-    }
-
-    return request;
   }
 
   async updateMyTripStatus(
     user: UserDocument,
+    requestId: string,
     newStatus: EmergencyRequestStatus,
   ) {
-    const trip = await this.findMyTrip(user);
+    if (!isValidObjectId(requestId)) {
+      throw new NotFoundException('Emergency request not found');
+    }
+
+    const trip = await this.emergencyRequestModel.findById(requestId);
+
+    if (!trip) {
+      throw new NotFoundException('Emergency request not found');
+    }
+
     return this.updateStatus(trip.id, newStatus, user);
   }
 
-  async rejectMyTrip(user: UserDocument) {
+  async rejectMyTrip(user: UserDocument, requestId: string) {
     await this.assertDriverVerified(user);
 
     const ambulance = await this.findDriverAmbulance(user);
+    if (!isValidObjectId(requestId)) {
+      throw new NotFoundException('No assigned trip found to reject');
+    }
+
     const trip = await this.emergencyRequestModel.findOne({
+      _id: new Types.ObjectId(requestId),
       assignedAmbulance: ambulance._id,
       status: EmergencyRequestStatus.ASSIGNED,
     });
@@ -700,7 +710,7 @@ export class EmergencyRequestService implements OnModuleInit {
     user: UserDocument,
   ): Promise<AmbulanceDocument> {
     const ambulance = await this.ambulanceModel.findOne({
-      phone: user.phone,
+      phone: { $in: getNepalPhoneVariants(user.phone) },
       isActive: true,
     });
 
@@ -1138,10 +1148,15 @@ export class EmergencyRequestService implements OnModuleInit {
   }
 
   private assertRequestNotDispatched(request: EmergencyRequestDocument) {
+    if (request.status === EmergencyRequestStatus.CANCELLED) {
+      throw new BadRequestException(
+        'Cancelled emergency request cannot be dispatched',
+      );
+    }
+
     if (
       request.status !== EmergencyRequestStatus.PENDING ||
-      request.assignedAmbulance ||
-      request.assignedHospital
+      request.assignedAmbulance
     ) {
       throw new BadRequestException('Emergency request is already dispatched');
     }

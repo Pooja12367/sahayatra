@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
 import {
   ApiBody,
   ApiCookieAuth,
@@ -30,15 +30,15 @@ export class DriverTripsController {
   @ApiOperation({ summary: 'Get the authenticated driver active trip' })
   @ApiResponse({
     status: 200,
-    description: 'Assigned active emergency request for the driver.',
-    schema: { example: emergencyRequestExample },
+    description: 'Active emergency requests for the authenticated driver.',
+    schema: { example: [emergencyRequestExample] },
   })
-  @ApiResponse({ status: 404, description: 'Assigned trip not found.' })
+  @ApiResponse({ status: 404, description: 'Driver ambulance not found.' })
   findMyTrip(@CurrentUser() user: UserDocument) {
     return this.emergencyRequestService.findMyTrip(user);
   }
 
-  @Patch('status')
+  @Patch(':requestId/status')
   @ApiOperation({ summary: 'Update the authenticated driver trip status' })
   @ApiBody({ type: UpdateStatusDto })
   @ApiResponse({
@@ -50,13 +50,18 @@ export class DriverTripsController {
   })
   @ApiResponse({ status: 400, description: 'Invalid status transition.' })
   updateStatus(
+    @Param('requestId') requestId: string,
     @Body() dto: UpdateStatusDto,
     @CurrentUser() user: UserDocument,
   ) {
-    return this.emergencyRequestService.updateMyTripStatus(user, dto.status);
+    return this.emergencyRequestService.updateMyTripStatus(
+      user,
+      requestId,
+      dto.status,
+    );
   }
 
-  @Patch('reject')
+  @Patch(':requestId/reject')
   @ApiOperation({ summary: 'Reject the current assigned trip' })
   @ApiResponse({
     status: 200,
@@ -64,7 +69,10 @@ export class DriverTripsController {
     schema: { example: { message: 'Trip rejected successfully' } },
   })
   @ApiResponse({ status: 404, description: 'No assigned trip found.' })
-  rejectTrip(@CurrentUser() user: UserDocument) {
-    return this.emergencyRequestService.rejectMyTrip(user);
+  rejectTrip(
+    @Param('requestId') requestId: string,
+    @CurrentUser() user: UserDocument,
+  ) {
+    return this.emergencyRequestService.rejectMyTrip(user, requestId);
   }
 }

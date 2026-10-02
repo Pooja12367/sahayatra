@@ -281,6 +281,8 @@ export function PatientDashboardContent({
     page: 1,
     limit: 100,
   });
+  const hospitalQueryFailed =
+    hospitalsQuery.isError || hospitalsQuery.isRefetchError;
   const createRequest = useCreateEmergencyRequest();
   const cancelRequest = useCancelMyRequest();
   const requests = useMemo(
@@ -486,7 +488,11 @@ export function PatientDashboardContent({
                   }
                   value={form.assignedHospital}
                 >
-                  <option value="">Nearest available hospital</option>
+                  <option value="">
+                    {hospitalsQuery.isLoading
+                      ? "Loading hospitals..."
+                      : "Nearest available hospital"}
+                  </option>
                   {preferredHospitals.map((hospital) => (
                     <option
                       key={getHospitalId(hospital)}
@@ -496,6 +502,31 @@ export function PatientDashboardContent({
                     </option>
                   ))}
                 </select>
+                {hospitalQueryFailed ? (
+                  <div
+                    className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+                    role="alert"
+                  >
+                    <span>
+                      Could not load hospitals: {getFriendlyApiErrorMessage(hospitalsQuery.error)}
+                    </span>
+                    <Button
+                      disabled={hospitalsQuery.isFetching}
+                      onClick={() => void hospitalsQuery.refetch()}
+                      type="button"
+                      variant="outline"
+                    >
+                      {hospitalsQuery.isFetching ? "Retrying..." : "Retry"}
+                    </Button>
+                  </div>
+                ) : null}
+                {!hospitalsQuery.isLoading &&
+                !hospitalQueryFailed &&
+                preferredHospitals.length === 0 ? (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    No hospitals currently have available beds. You can leave this set to nearest available hospital.
+                  </p>
+                ) : null}
               </Field>
               <Field label="Notes">
                 <textarea

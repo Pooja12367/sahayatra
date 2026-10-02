@@ -9,6 +9,7 @@ import { Model, Types } from 'mongoose';
 import { UserRole } from '../constants/enums';
 import type { UserDocument } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
+import { getNepalPhoneVariants } from '../users/phone.util';
 import { FindDriversQueryDto } from '../drivers/dto/find-drivers-query.dto';
 import {
   Ambulance,
@@ -82,9 +83,9 @@ export class RoleProfilesService {
     const phones = profilesWithUsers
       .map((profile) => {
         const user = profile.user as unknown as { phone?: string };
-        return user.phone;
+        return user.phone ? getNepalPhoneVariants(user.phone) : [];
       })
-      .filter((phone): phone is string => Boolean(phone));
+      .flat();
 
     const ambulances = await this.ambulanceModel
       .find({ phone: { $in: phones } })
@@ -92,10 +93,15 @@ export class RoleProfilesService {
       .exec();
 
     const ambulanceByPhone = new Map<string, AmbulanceDocument>();
-    ambulances.forEach((ambulance) => {
-      if (!ambulanceByPhone.has(ambulance.phone)) {
-        ambulanceByPhone.set(ambulance.phone, ambulance);
-      }
+    profilesWithUsers.forEach((profile) => {
+      const user = profile.user as unknown as { phone?: string };
+      if (!user.phone) return;
+
+      const phoneVariants = getNepalPhoneVariants(user.phone);
+      const ambulance = ambulances.find((item) =>
+        phoneVariants.includes(item.phone),
+      );
+      if (ambulance) ambulanceByPhone.set(user.phone, ambulance);
     });
 
     return {

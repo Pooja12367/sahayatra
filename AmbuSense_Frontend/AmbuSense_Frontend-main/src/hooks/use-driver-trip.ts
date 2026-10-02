@@ -1,7 +1,6 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
 import { api } from "@/lib/api";
 import type {
   EmergencyRequest,
@@ -17,19 +16,8 @@ export function useDriverMyTrip(enabled = true) {
     enabled,
     queryKey: driverTripKeys.all,
     queryFn: async () => {
-      try {
-        const { data } = await api.get<EmergencyRequest>("/driver/my-trip");
-        return data;
-      } catch (error) {
-        if (
-          axios.isAxiosError(error) &&
-          error.response?.status === 404
-        ) {
-          return null;
-        }
-
-        throw error;
-      }
+      const { data } = await api.get<EmergencyRequest[]>("/driver/my-trip");
+      return data;
     },
     // Poll every 5s as a safety net in case a socket event is missed
     refetchInterval: 5000,
@@ -40,15 +28,40 @@ export function useUpdateDriverTripStatus() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (payload: UpdateEmergencyRequestStatusPayload) => {
+    mutationFn: async (
+      payload: UpdateEmergencyRequestStatusPayload & { requestId: string },
+    ) => {
       const { data } = await api.patch<EmergencyRequest>(
-        "/driver/my-trip/status",
-        payload,
+        `/driver/my-trip/${encodeURIComponent(payload.requestId)}/status`,
+        { status: payload.status },
       );
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: driverTripKeys.all });
+    onSuccess: (updatedTrip) => {
+      const updatedTripId = updatedTrip.id ?? updatedTrip._id;
+      queryClient.setQueryData<EmergencyRequest[]>(
+        driverTripKeys.all,
+        (trips = []) => {
+          if (
+            updatedTrip.status === "completed" ||
+            updatedTrip.status === "cancelled"
+          ) {
+            return trips.filter(
+              (trip) => (trip.id ?? trip._id) !== updatedTripId,
+            );
+          }
+
+          const hasTrip = trips.some(
+            (trip) => (trip.id ?? trip._id) === updatedTripId,
+          );
+          return hasTrip
+            ? trips.map((trip) =>
+                (trip.id ?? trip._id) === updatedTripId ? updatedTrip : trip,
+              )
+            : [...trips, updatedTrip];
+        },
+      );
+      return queryClient.invalidateQueries({ queryKey: driverTripKeys.all });
     },
   });
 }
@@ -57,9 +70,9 @@ export function useRejectDriverTrip() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (requestId: string) => {
       const { data } = await api.patch<{ message: string }>(
-        "/driver/my-trip/reject",
+        `/driver/my-trip/${encodeURIComponent(requestId)}/reject`,
       );
       return data;
     },

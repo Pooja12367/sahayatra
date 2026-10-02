@@ -2,7 +2,9 @@ import axios from "axios";
 import type { ApiErrorResponse } from "@/types/common";
 
 export const api = axios.create({
-  baseURL: "https://sahayatra-backend-fa4y.onrender.com/api",
+  baseURL:
+    process.env.NEXT_PUBLIC_API_URL ??
+    "https://sahayatra-backend-fa4y.onrender.com/api",
   withCredentials: true,
   headers: {
     Accept: "application/json",

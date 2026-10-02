@@ -230,6 +230,10 @@ function getAmbulanceLabel(ambulance: AmbulanceType | null | undefined) {
   return ambulance?.ambulanceCode ?? "Not assigned";
 }
 
+function getRequestId(request: EmergencyRequest | null | undefined) {
+  return request?.id ?? request?._id ?? "";
+}
+
 function getHospitalLabel(request: EmergencyRequest | null | undefined) {
   return request?.assignedHospital?.name ?? "Not assigned";
 }
@@ -409,6 +413,7 @@ function EmergencyAlertOverlay({
 }
 
 function DriverTripPanel({
+  onTripSelect,
   isStatusPending,
   isRejectPending,
   isTrackingActive,
@@ -418,9 +423,12 @@ function DriverTripPanel({
   queryError,
   queryIsError,
   queryIsLoading,
+  selectedTripId,
   trackingMessage,
+  trips,
   trip,
 }: {
+  onTripSelect: (requestId: string) => void;
   isStatusPending: boolean;
   isRejectPending: boolean;
   isTrackingActive: boolean;
@@ -430,11 +438,34 @@ function DriverTripPanel({
   queryError: unknown;
   queryIsError: boolean;
   queryIsLoading: boolean;
+  selectedTripId: string;
   trackingMessage: string;
+  trips: EmergencyRequest[];
   trip: EmergencyRequest | null;
 }) {
   const nextStatus = trip ? nextStatusByStatus[trip.status] : undefined;
   const isAssigned = trip?.status === "assigned";
+  const tripSelector = trips.length > 1 ? (
+    <div className="space-y-2">
+      <Label htmlFor="driver-trip-request">Active request</Label>
+      <select
+        className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm shadow-xs outline-none transition focus-visible:border-blue-500 focus-visible:ring-3 focus-visible:ring-blue-500/20"
+        id="driver-trip-request"
+        onChange={(event) => onTripSelect(event.target.value)}
+        value={trips.some((item) => getRequestId(item) === selectedTripId) ? selectedTripId : ""}
+      >
+        <option value="">Choose a request</option>
+        {trips.map((item) => {
+          const requestId = getRequestId(item);
+          return (
+            <option key={requestId} value={requestId}>
+              {item.patientName} - {formatStatus(item.status)} - {requestId.slice(-6)}
+            </option>
+          );
+        })}
+      </select>
+    </div>
+  ) : null;
 
   // Store the latest onTripReject to use inside the timer without resetting it
   const onTripRejectRef = useRef(onTripReject);
@@ -456,28 +487,12 @@ function DriverTripPanel({
       }, 800); // repeat every 800ms (500 on + 300 off)
     }
 
-    // Calculate time remaining based on when it was assigned
-    let timeoutMs = 60000;
-    if (trip?.assignedAt) {
-      const assignedTime = new Date(trip.assignedAt).getTime();
-      const now = Date.now();
-      const elapsed = now - assignedTime;
-      timeoutMs = Math.max(0, 60000 - elapsed);
-    }
-
     const triggerReject = () => {
       onTripRejectRef.current();
       toast.info("Trip auto-rejected and forwarded to another driver due to inactivity", { duration: 5000 });
     };
 
-    let timeoutId: NodeJS.Timeout | undefined;
-    if (timeoutMs === 0) {
-      // Already expired, reject immediately
-      triggerReject();
-    } else {
-      // Auto-reject after the remaining idle time
-      timeoutId = setTimeout(triggerReject, timeoutMs);
-    }
+    const timeoutId = setTimeout(triggerReject, 60000);
 
     return () => {
       if (intervalId) clearInterval(intervalId);
@@ -524,17 +539,23 @@ function DriverTripPanel({
               <Route className="size-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold">No active trip</h2>
+              <h2 className="text-lg font-semibold">
+                {trips.length > 1 ? "Choose an active trip" : "No active trip"}
+              </h2>
               <p className="text-sm text-muted-foreground">
-                Assigned emergency trips will appear here automatically.
+                {trips.length > 1
+                  ? "Select the request you want to manage."
+                  : "Assigned emergency trips will appear here automatically."}
               </p>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {tripSelector}
           <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-            Live tracking is idle until dispatch assigns an active trip to your
-            ambulance.
+            {trips.length > 1
+              ? "Choose a request to view its trip details and status actions."
+              : "Live tracking is idle until dispatch assigns an active trip to your ambulance."}
           </div>
         </CardContent>
       </Card>
@@ -969,6 +990,11 @@ export function DriverDashboardContent({
   );
   const [documentType, setDocumentType] =
     useState<(typeof documentTypes)[number]>("Driving License");
+  const [selectedTripId, setSelectedTripId] = useState(() =>
+    typeof window === "undefined"
+      ? ""
+      : new URLSearchParams(window.location.search).get("requestId") ?? "",
+  );
   const { data, isLoading, isFetching } = useMe();
   const profile = data?.profile;
   const verificationState = getVerificationState(
@@ -983,7 +1009,10 @@ export function DriverDashboardContent({
   const myTripQuery = useDriverMyTrip(isVerified);
   const updateTripStatus = useUpdateDriverTripStatus();
   const rejectTrip = useRejectDriverTrip();
-  const activeTrip = myTripQuery.data ?? null;
+  const activeTrips = myTripQuery.data ?? [];
+  const activeTrip =
+    activeTrips.find((trip) => getRequestId(trip) === selectedTripId) ??
+    (activeTrips.length === 1 ? activeTrips[0] : null);
   const driverAmbulanceQuery = useDriverAmbulance();
   const ambulance = driverAmbulanceQuery.data;
   const updateAmbulanceStatus = useUpdateAmbulanceStatus();
@@ -1052,8 +1081,14 @@ export function DriverDashboardContent({
   }
 
   async function handleTripStatusUpdate(status: EmergencyRequestStatus) {
+    const requestId = getRequestId(activeTrip);
+    if (!requestId) {
+      toast.error("Trip ID is missing");
+      return;
+    }
+
     try {
-      await updateTripStatus.mutateAsync({ status });
+      await updateTripStatus.mutateAsync({ requestId, status });
       toast.success(`Trip status updated to ${formatStatus(status)}`);
     } catch (error) {
       toast.error(getFriendlyApiErrorMessage(error));
@@ -1061,8 +1096,14 @@ export function DriverDashboardContent({
   }
 
   async function handleTripReject() {
+    const requestId = getRequestId(activeTrip);
+    if (!requestId) {
+      toast.error("Trip ID is missing");
+      return;
+    }
+
     try {
-      await rejectTrip.mutateAsync();
+      await rejectTrip.mutateAsync(requestId);
       toast.success("Request rejected. Dispatching to next available driver.");
     } catch (error) {
       toast.error(getFriendlyApiErrorMessage(error));
@@ -1456,6 +1497,16 @@ export function DriverDashboardContent({
 
             {showTrip && isVerified ? (
               <DriverTripPanel
+                onTripSelect={(requestId) => {
+                  setSelectedTripId(requestId);
+                  const url = new URL(window.location.href);
+                  if (requestId) {
+                    url.searchParams.set("requestId", requestId);
+                  } else {
+                    url.searchParams.delete("requestId");
+                  }
+                  window.history.replaceState(null, "", url);
+                }}
                 isStatusPending={updateTripStatus.isPending}
                 isRejectPending={rejectTrip.isPending}
                 isTrackingActive={isTrackingActive}
@@ -1465,7 +1516,9 @@ export function DriverDashboardContent({
                 queryError={myTripQuery.error}
                 queryIsError={myTripQuery.isError}
                 queryIsLoading={myTripQuery.isLoading}
+                selectedTripId={selectedTripId}
                 trackingMessage={trackingMessage}
+                trips={activeTrips}
                 trip={activeTrip}
               />
             ) : null}

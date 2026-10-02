@@ -18,6 +18,7 @@ import { FindAmbulancesQueryDto } from './dto/find-ambulances-query.dto';
 import type { UserDocument } from '../users/entities/user.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
 import { EmergencyRequestService } from '../emergency-request/emergency-request.service';
+import { getNepalPhoneVariants } from '../users/phone.util';
 
 const ALLOWED_STATUS_TRANSITIONS: Record<AmbulanceStatus, AmbulanceStatus[]> = {
   [AmbulanceStatus.OFFLINE]: [AmbulanceStatus.AVAILABLE],
@@ -354,7 +355,7 @@ export class AmbulanceService implements OnModuleInit {
 
   async findDriverAmbulance(user: UserDocument): Promise<AmbulanceDocument> {
     const ambulance = await this.ambulanceModel.findOne({
-      phone: user.phone,
+      phone: { $in: getNepalPhoneVariants(user.phone) },
       isActive: true,
     });
 
@@ -375,7 +376,7 @@ export class AmbulanceService implements OnModuleInit {
 
     const ambulance = await this.ambulanceModel.findOne({
       _id: ambulanceId,
-      phone: user.phone,
+      phone: { $in: getNepalPhoneVariants(user.phone) },
       isActive: true,
     });
 

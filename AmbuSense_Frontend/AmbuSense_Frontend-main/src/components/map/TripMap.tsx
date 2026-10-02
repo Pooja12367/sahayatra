@@ -288,7 +288,7 @@ export function TripMap({ trip }: { trip: EmergencyRequest }) {
                 ? "Waiting for driver's location..."
                 : trip.status === "assigned"
                   ? "Waiting for driver to accept and start the trip."
-                : "Driver location unavailable."
+                  : "Driver location unavailable."
               : clockNow - new Date(locationUpdatedAt).getTime() > 30000
                 ? "Driver location unavailable. Last update is stale."
                 : `Live location updated ${Math.max(0, Math.floor((clockNow - new Date(locationUpdatedAt).getTime()) / 1000))} seconds ago.`}

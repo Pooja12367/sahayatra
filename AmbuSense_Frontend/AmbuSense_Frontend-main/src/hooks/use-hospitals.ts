@@ -31,6 +31,8 @@ export function useHospitals(filters: HospitalFilters = {}) {
       );
       return data;
     },
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 
