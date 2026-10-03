@@ -1,8 +1,9 @@
 import type { Model } from 'mongoose';
 import { ModuleRef } from '@nestjs/core';
 import { AmbulanceService } from './ambulance.service';
-import { AmbulanceDocument, Ambulance } from './entities/ambulance.entity';
+import { AmbulanceDocument } from './entities/ambulance.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
+import type { EmergencyRequestDocument } from '../emergency-request/entities/emergency-request.entity';
 import type { UserDocument } from '../users/entities/user.entity';
 
 describe('AmbulanceService.update', () => {
@@ -33,6 +34,7 @@ describe('AmbulanceService.update', () => {
     } as unknown as Model<AmbulanceDocument>;
     const service = new AmbulanceService(
       ambulanceModel,
+      {} as Model<EmergencyRequestDocument>,
       {} as ModuleRef,
       {} as RoleProfilesService,
     );
@@ -56,18 +58,23 @@ describe('AmbulanceService.update', () => {
 });
 
 describe('AmbulanceService.findDriverAmbulance', () => {
-  it('uses a unique exact driver name match before a mismatched phone match', async () => {
+  it('loads the ambulance from the authenticated driver active assignment ID', async () => {
     const ambulance = { _id: 'ambulance-764' };
-    const nameQuery = {
+    const tripQuery = {
+      select: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
-      exec: jest.fn().mockResolvedValue([ambulance]),
+      exec: jest.fn().mockResolvedValue([{ assignedAmbulance: ambulance._id }]),
     };
+    const emergencyRequestModel = {
+      find: jest.fn().mockReturnValue(tripQuery),
+    } as unknown as Model<EmergencyRequestDocument>;
     const ambulanceModel = {
-      find: jest.fn().mockReturnValue(nameQuery),
-      findOne: jest.fn(),
+      findById: jest.fn().mockResolvedValue(ambulance),
+      find: jest.fn(),
     } as unknown as Model<AmbulanceDocument>;
     const service = new AmbulanceService(
       ambulanceModel,
+      emergencyRequestModel,
       {} as ModuleRef,
       {} as RoleProfilesService,
     );
@@ -78,11 +85,41 @@ describe('AmbulanceService.findDriverAmbulance', () => {
         phone: '+9779876543667',
       } as UserDocument),
     ).resolves.toBe(ambulance);
-    expect(ambulanceModel.find).toHaveBeenCalledWith({
-      driverName: /^Pooja Shrestha$/i,
-      isActive: true,
-      status: { $ne: 'completed' },
-    });
-    expect(ambulanceModel.findOne).not.toHaveBeenCalled();
+    expect(emergencyRequestModel.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assignedDriverId: expect.any(Object),
+        status: { $in: expect.any(Array) },
+      }),
+    );
+    expect(ambulanceModel.findById).toHaveBeenCalledWith(ambulance._id);
+    expect(ambulanceModel.find).not.toHaveBeenCalled();
+  });
+
+  it('rejects multiple active assignments for the authenticated driver', async () => {
+    const tripQuery = {
+      select: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([{}, {}]),
+    };
+    const emergencyRequestModel = {
+      find: jest.fn().mockReturnValue(tripQuery),
+    } as unknown as Model<EmergencyRequestDocument>;
+    const ambulanceModel = {
+      find: jest.fn(),
+    } as unknown as Model<AmbulanceDocument>;
+    const service = new AmbulanceService(
+      ambulanceModel,
+      emergencyRequestModel,
+      {} as ModuleRef,
+      {} as RoleProfilesService,
+    );
+
+    await expect(
+      service.findDriverAmbulance({
+        fullName: 'Pooja Shrestha',
+        phone: '+9779876543667',
+      } as UserDocument),
+    ).rejects.toThrow('Driver has more than one active trip assignment');
+    expect(ambulanceModel.find).not.toHaveBeenCalled();
   });
 });

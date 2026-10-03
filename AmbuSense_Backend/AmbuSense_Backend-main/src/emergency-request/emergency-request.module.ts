@@ -16,6 +16,7 @@ import { AuthModule } from '../auth/auth.module';
 import { RoleProfilesModule } from '../role-profiles/role-profiles.module';
 import { MyRequestsController } from './my-requests.controller';
 import { DriverTripsController } from './driver-trips.controller';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { DriverTripsController } from './driver-trips.controller';
       },
     ]),
     AuthModule,
+    UsersModule,
     RoleProfilesModule,
     GatewayModule,
   ],

@@ -52,10 +52,18 @@ function getAmbulanceId(ambulance: Ambulance | null | undefined) {
 function isValidCoordinates(
   coordinates: RouteCoordinates | null | undefined,
 ): coordinates is RouteCoordinates {
+  const [longitude, latitude] = coordinates ?? [];
   return (
     Array.isArray(coordinates) &&
     coordinates.length === 2 &&
-    coordinates.every((coordinate) => Number.isFinite(coordinate))
+    typeof longitude === "number" &&
+    Number.isFinite(longitude) &&
+    longitude >= -180 &&
+    longitude <= 180 &&
+    typeof latitude === "number" &&
+    Number.isFinite(latitude) &&
+    latitude >= -90 &&
+    latitude <= 90
   );
 }
 

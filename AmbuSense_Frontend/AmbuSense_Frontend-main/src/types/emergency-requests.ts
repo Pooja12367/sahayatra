@@ -38,6 +38,7 @@ export type EmergencyRequest = {
   pickupLocation: EmergencyRequestLocation;
   pickupAddress?: string | null;
   assignedAmbulance?: Nullable<Ambulance>;
+  assignedDriverId?: Nullable<string>;
   assignedHospital?: Nullable<Hospital>;
   hospitalAssignmentTechnique?: Nullable<DispatchTechnique>;
   status: EmergencyRequestStatus;

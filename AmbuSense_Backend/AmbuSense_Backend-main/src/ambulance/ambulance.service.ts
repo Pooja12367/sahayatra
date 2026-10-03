@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   OnModuleInit,
@@ -18,6 +19,19 @@ import { FindAmbulancesQueryDto } from './dto/find-ambulances-query.dto';
 import type { UserDocument } from '../users/entities/user.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
 import { getNepalPhoneVariants } from '../users/phone.util';
+import {
+  EmergencyRequest,
+  EmergencyRequestDocument,
+} from '../emergency-request/entities/emergency-request.entity';
+import { EmergencyRequestStatus } from '../constants/enums';
+
+const ACTIVE_DRIVER_TRIP_STATUSES = [
+  EmergencyRequestStatus.ASSIGNED,
+  EmergencyRequestStatus.EN_ROUTE,
+  EmergencyRequestStatus.AT_PATIENT,
+  EmergencyRequestStatus.TRANSPORTING,
+  EmergencyRequestStatus.AT_HOSPITAL,
+];
 
 const ALLOWED_STATUS_TRANSITIONS: Record<AmbulanceStatus, AmbulanceStatus[]> = {
   [AmbulanceStatus.OFFLINE]: [AmbulanceStatus.AVAILABLE],
@@ -43,9 +57,11 @@ export class AmbulanceService implements OnModuleInit {
   constructor(
     @InjectModel(Ambulance.name)
     private readonly ambulanceModel: Model<AmbulanceDocument>,
+    @InjectModel(EmergencyRequest.name)
+    private readonly emergencyRequestModel: Model<EmergencyRequestDocument>,
     private readonly moduleRef: ModuleRef,
     private readonly roleProfilesService: RoleProfilesService,
-  ) { }
+  ) {}
 
   onModuleInit() {
     this.trackingGateway = this.moduleRef.get(TrackingGateway, {
@@ -333,38 +349,55 @@ export class AmbulanceService implements OnModuleInit {
   }
 
   async findDriverAmbulance(user: UserDocument): Promise<AmbulanceDocument> {
-    const driverName = user.fullName?.trim();
-    if (driverName) {
-      const namedAmbulances = await this.ambulanceModel
-        .find({
-          driverName: new RegExp(`^${this.escapeRegex(driverName)}$`, 'i'),
-          isActive: true,
-          status: { $ne: AmbulanceStatus.COMPLETED },
-        })
-        .limit(2)
-        .exec();
+    const activeTrips = await this.emergencyRequestModel
+      .find({
+        assignedDriverId: user._id,
+        status: { $in: ACTIVE_DRIVER_TRIP_STATUSES },
+      })
+      .select('assignedAmbulance')
+      .limit(2)
+      .exec();
 
-      if (namedAmbulances.length > 1) {
-        throw new NotFoundException(
-          'Driver ambulance assignment is ambiguous',
-        );
-      }
-
-      if (namedAmbulances.length === 1) {
-        return namedAmbulances[0];
-      }
+    if (activeTrips.length > 1) {
+      throw new ConflictException(
+        'Driver has more than one active trip assignment',
+      );
     }
 
-    const ambulance = await this.ambulanceModel.findOne({
-      phone: { $in: getNepalPhoneVariants(user.phone) },
-      isActive: true,
-    });
+    if (activeTrips.length === 1) {
+      const ambulanceId = activeTrips[0].assignedAmbulance;
+      if (!ambulanceId) {
+        throw new NotFoundException('Driver ambulance not found');
+      }
 
-    if (!ambulance) {
+      const assignedAmbulance = await this.ambulanceModel.findById(ambulanceId);
+      if (!assignedAmbulance || !assignedAmbulance.isActive) {
+        throw new NotFoundException('Driver ambulance not found');
+      }
+
+      return assignedAmbulance;
+    }
+
+    const ambulances = await this.ambulanceModel
+      .find({
+        phone: { $in: getNepalPhoneVariants(user.phone) },
+        isActive: true,
+        status: { $ne: AmbulanceStatus.COMPLETED },
+      })
+      .limit(2)
+      .exec();
+
+    if (ambulances.length > 1) {
+      throw new ConflictException(
+        'Driver phone is linked to multiple active ambulances',
+      );
+    }
+
+    if (ambulances.length === 0) {
       throw new NotFoundException('Driver ambulance not found');
     }
 
-    return ambulance;
+    return ambulances[0];
   }
 
   private async assertDriverCanAccessAmbulance(

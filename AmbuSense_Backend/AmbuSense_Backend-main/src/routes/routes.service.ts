@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  GatewayTimeoutException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -19,10 +20,10 @@ import {
   Hospital,
   HospitalDocument,
 } from '../hospital/entities/hospital.entity';
-import { AmbulanceStatus, UserRole } from '../constants/enums';
+import { UserRole } from '../constants/enums';
 import type { UserDocument } from '../users/entities/user.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
-import { getNepalPhoneVariants } from '../users/phone.util';
+import { areNepalPhoneNumbersEqual } from '../users/phone.util';
 
 type Coordinates = [number, number];
 
@@ -112,6 +113,10 @@ export class RoutesService {
     );
     const hospital = await this.findAssignedHospital(request);
 
+    this.assertValidCoordinates(ambulance.currentLocation.coordinates);
+    this.assertValidCoordinates(request.pickupLocation.coordinates);
+    this.assertValidCoordinates(hospital.location.coordinates);
+
     const ambulanceToPickup = await this.getRouteLeg(
       ambulance.currentLocation.coordinates,
       request.pickupLocation.coordinates,
@@ -185,43 +190,28 @@ export class RoutesService {
         user._id as Types.ObjectId,
       );
 
-      const driverName = user.fullName?.trim();
-      const escapedDriverName = driverName?.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        '\\$&',
-      );
-      const namedAmbulances = escapedDriverName
-        ? await this.ambulanceModel
-            .find({
-              driverName: new RegExp(`^${escapedDriverName}$`, 'i'),
-              isActive: true,
-              status: { $ne: AmbulanceStatus.COMPLETED },
-            })
-            .limit(2)
-            .exec()
-        : [];
-
-      if (namedAmbulances.length > 1) {
-        throw new NotFoundException('Ambulance assignment is ambiguous');
-      }
-
-      const ambulance = namedAmbulances[0] ?? (await this.ambulanceModel.findOne({
-        phone: { $in: getNepalPhoneVariants(user.phone) },
-        isActive: true,
-      }));
-
-      if (!ambulance) {
-        throw new NotFoundException('Ambulance not found');
-      }
-
       if (
         requestedAmbulanceId &&
-        requestedAmbulanceId !== ambulance._id.toString()
+        requestedAmbulanceId !== request.assignedAmbulance?.toString()
       ) {
         throw new NotFoundException('Ambulance not found');
       }
 
-      if (request.assignedAmbulance?.toString() !== ambulance._id.toString()) {
+      if (!request.assignedAmbulance) {
+        throw new NotFoundException('Emergency request not found');
+      }
+
+      if (request.assignedDriverId) {
+        if (request.assignedDriverId.toString() !== user._id.toString()) {
+          throw new NotFoundException('Emergency request not found');
+        }
+        return;
+      }
+
+      const ambulance = await this.findAmbulance(
+        request.assignedAmbulance.toString(),
+      );
+      if (!areNepalPhoneNumbersEqual(ambulance.phone, user.phone)) {
         throw new NotFoundException('Emergency request not found');
       }
     }
@@ -249,6 +239,9 @@ export class RoutesService {
     sourceCoordinates: Coordinates,
     destinationCoordinates: Coordinates,
   ): Promise<RouteLeg> {
+    this.assertValidCoordinates(sourceCoordinates);
+    this.assertValidCoordinates(destinationCoordinates);
+
     const route = await this.fetchOsrmRoute(
       sourceCoordinates,
       destinationCoordinates,
@@ -276,20 +269,27 @@ export class RoutesService {
       `${sourceLng},${sourceLat};${destinationLng},${destinationLat}` +
       '?overview=full&geometries=geojson';
 
-    let response: Response;
-
-    try {
-      response = await fetch(url);
-    } catch {
-      throw new BadGatewayException('Failed to reach OSRM server');
-    }
-
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    let response: Response | undefined;
     let data: OsrmResponse;
 
     try {
+      response = await fetch(url, { signal: controller.signal });
       data = (await response.json()) as OsrmResponse;
-    } catch {
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        (error instanceof Error && error.name === 'AbortError')
+      ) {
+        throw new GatewayTimeoutException('OSRM request timed out');
+      }
+      if (!response) {
+        throw new BadGatewayException('Failed to reach OSRM server');
+      }
       throw new BadGatewayException('Invalid OSRM response');
+    } finally {
+      clearTimeout(timeout);
     }
 
     if (!response.ok) {
@@ -313,5 +313,21 @@ export class RoutesService {
       duration: route.duration,
       geometry: route.geometry,
     };
+  }
+
+  private assertValidCoordinates(coordinates: Coordinates) {
+    const [longitude, latitude] = coordinates ?? [];
+    if (
+      !Number.isFinite(longitude) ||
+      !Number.isFinite(latitude) ||
+      longitude < -180 ||
+      longitude > 180 ||
+      latitude < -90 ||
+      latitude > 90
+    ) {
+      throw new BadRequestException(
+        'Route locations must contain valid longitude and latitude coordinates',
+      );
+    }
   }
 }

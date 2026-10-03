@@ -286,6 +286,7 @@ export class TrackingGateway
       const request = await this.emergencyRequestModel.findOne({
         _id: payload.requestId,
         assignedAmbulance: current._id,
+        $or: [{ assignedDriverId: user._id }, { assignedDriverId: null }],
         status: { $in: this.ACTIVE_TRACKING_STATUSES },
       });
 
@@ -306,17 +307,16 @@ export class TrackingGateway
         new Date(reportedAt),
       );
 
-      this.server.to(this.trackingRoom(request.id)).emit(
-        'tracking.location.updated',
-        {
+      this.server
+        .to(this.trackingRoom(request.id))
+        .emit('tracking.location.updated', {
           requestId: request.id,
           ambulanceId: updated.id,
           driverId: user?._id.toString() ?? null,
           coordinates: updated.currentLocation.coordinates,
           accuracy: payload.accuracy,
           timestamp: updated.locationUpdatedAt,
-        },
-      );
+        });
 
       return { ok: true };
     } catch {
@@ -371,6 +371,9 @@ export class TrackingGateway
       await this.roleProfilesService.assertDriverVerified(
         user._id as Types.ObjectId,
       );
+      if (request.assignedDriverId) {
+        return request.assignedDriverId.toString() === user._id.toString();
+      }
       if (!request.assignedAmbulance) return false;
       const ambulance = await this.ambulanceService.findDriverAmbulance(user);
       return request.assignedAmbulance.toString() === ambulance.id;

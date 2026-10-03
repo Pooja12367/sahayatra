@@ -7,11 +7,16 @@ import { GatewayModule } from '../gateway/gateway.module';
 import { AuthModule } from '../auth/auth.module';
 import { RoleProfilesModule } from '../role-profiles/role-profiles.module';
 import { EmergencyRequestModule } from '../emergency-request/emergency-request.module';
+import {
+  EmergencyRequest,
+  EmergencyRequestSchema,
+} from '../emergency-request/entities/emergency-request.entity';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Ambulance.name, schema: AmbulanceSchema },
+      { name: EmergencyRequest.name, schema: EmergencyRequestSchema },
     ]),
     AuthModule,
     RoleProfilesModule,

@@ -1,39 +1,45 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { Model, Types } from 'mongoose';
-import {
-  Ambulance,
-  AmbulanceDocument,
-} from '../ambulance/entities/ambulance.entity';
+import { AmbulanceDocument } from '../ambulance/entities/ambulance.entity';
 import {
   AmbulanceStatus,
   EmergencyRequestStatus,
   HospitalAssignmentTechnique,
 } from '../constants/enums';
-import {
-  Hospital,
-  HospitalDocument,
-} from '../hospital/entities/hospital.entity';
+import { HospitalDocument } from '../hospital/entities/hospital.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
-import {
-  EmergencyRequest,
-  EmergencyRequestDocument,
-} from './entities/emergency-request.entity';
-import { EmergencyRequestService } from './emergency-request.service';
 import type { UserDocument } from '../users/entities/user.entity';
+import { EmergencyRequestDocument } from './entities/emergency-request.entity';
+import { EmergencyRequestService } from './emergency-request.service';
 
 type DispatchTestInternals = {
   resolveHospitalForDispatch: jest.Mock;
   claimNearestAvailableAmbulance: jest.Mock;
   reserveHospitalBed: jest.Mock;
+  findDriverIdForAmbulance: jest.Mock;
   findOne: jest.Mock;
   emitEmergencyRequestDispatched: jest.Mock;
 };
+
+function makeTripQuery(result: unknown[]) {
+  return {
+    populate: jest.fn().mockReturnThis(),
+    sort: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    exec: jest.fn().mockResolvedValue(result),
+  };
+}
 
 describe('EmergencyRequestService dispatch', () => {
   const requestId = new Types.ObjectId();
   const hospitalId = new Types.ObjectId();
   const ambulanceId = new Types.ObjectId();
+  const driverId = new Types.ObjectId();
 
   function makeService(request: Partial<EmergencyRequestDocument>) {
     const requestDocument = {
@@ -45,6 +51,7 @@ describe('EmergencyRequestService dispatch', () => {
         coordinates: [85.324, 27.7172],
       },
       assignedAmbulance: null,
+      assignedDriverId: null,
       assignedHospital: null,
       save: jest.fn().mockResolvedValue(undefined),
       ...request,
@@ -58,6 +65,7 @@ describe('EmergencyRequestService dispatch', () => {
       {} as Model<HospitalDocument>,
       {} as ModuleRef,
       {} as RoleProfilesService,
+      {} as Model<UserDocument>,
     );
     const internals = service as unknown as DispatchTestInternals;
     internals.resolveHospitalForDispatch = jest.fn().mockResolvedValue({
@@ -68,6 +76,7 @@ describe('EmergencyRequestService dispatch', () => {
       status: AmbulanceStatus.ASSIGNED,
     });
     internals.reserveHospitalBed = jest.fn().mockResolvedValue(true);
+    internals.findDriverIdForAmbulance = jest.fn().mockResolvedValue(driverId);
     internals.findOne = jest.fn().mockResolvedValue({
       id: requestId.toString(),
       status: EmergencyRequestStatus.ASSIGNED,
@@ -81,7 +90,7 @@ describe('EmergencyRequestService dispatch', () => {
     hospitalAssignmentTechnique: HospitalAssignmentTechnique.SYSTEM_AUTO,
   };
 
-  it('dispatches a pending request that already has a preselected hospital', async () => {
+  it('stores unique ambulance and driver IDs on a dispatched request', async () => {
     const { service, internals, requestDocument } = makeService({
       assignedHospital: hospitalId,
     });
@@ -90,6 +99,7 @@ describe('EmergencyRequestService dispatch', () => {
 
     expect(requestDocument.status).toBe(EmergencyRequestStatus.ASSIGNED);
     expect(requestDocument.assignedAmbulance).toBe(ambulanceId);
+    expect(requestDocument.assignedDriverId).toBe(driverId);
     expect(requestDocument.assignedHospital).toBe(hospitalId);
     expect(requestDocument.save).toHaveBeenCalledTimes(1);
     expect(result.status).toBe(EmergencyRequestStatus.ASSIGNED);
@@ -128,7 +138,7 @@ describe('EmergencyRequestService dispatch', () => {
     expect(internals.resolveHospitalForDispatch).not.toHaveBeenCalled();
   });
 
-  it('reports no available ambulance for an undispatched pending request', async () => {
+  it('reports no available ambulance for an undispatched request', async () => {
     const { service, internals } = makeService({
       assignedHospital: hospitalId,
     });
@@ -137,163 +147,19 @@ describe('EmergencyRequestService dispatch', () => {
     await expect(
       service.dispatch(requestId.toString(), dispatchDto),
     ).rejects.toThrow(new NotFoundException('No available ambulance found'));
+    expect(internals.findDriverIdForAmbulance).not.toHaveBeenCalled();
   });
 });
 
-describe('EmergencyRequestService driver ambulance lookup', () => {
-  it('prefers the ambulance referenced by the active request over completed duplicates', async () => {
-    const completedAmbulance = {
-      _id: new Types.ObjectId(),
-      status: AmbulanceStatus.COMPLETED,
-    };
-    const assignedAmbulance = {
-      _id: new Types.ObjectId(),
-      status: AmbulanceStatus.ASSIGNED,
-    };
-    const nameQuery = {
-      exec: jest
-        .fn()
-        .mockResolvedValue([completedAmbulance, assignedAmbulance]),
-    };
-    const ambulanceModel = {
-      find: jest.fn().mockReturnValue(nameQuery),
-      findOne: jest.fn(),
-    };
-    const emergencyRequestModel = {
-      distinct: jest.fn().mockResolvedValue([assignedAmbulance._id]),
-    };
-    const service = new EmergencyRequestService(
-      emergencyRequestModel as unknown as Model<EmergencyRequestDocument>,
-      ambulanceModel as unknown as Model<AmbulanceDocument>,
-      {} as Model<HospitalDocument>,
-      {} as ModuleRef,
-      {} as RoleProfilesService,
-    );
-    const findDriverAmbulance = service as unknown as {
-      findDriverAmbulance: (user: {
-        fullName: string;
-        phone: string;
-      }) => Promise<AmbulanceDocument>;
-    };
-
-    await expect(
-      findDriverAmbulance.findDriverAmbulance({
-        fullName: 'Pooja Shrestha',
-        phone: '+9779876543667',
-      }),
-    ).resolves.toBe(assignedAmbulance);
-    expect(emergencyRequestModel.distinct).toHaveBeenCalledWith(
-      'assignedAmbulance',
-      expect.objectContaining({
-        assignedAmbulance: {
-          $in: [completedAmbulance._id, assignedAmbulance._id],
-        },
-        status: {
-          $in: [
-            EmergencyRequestStatus.ASSIGNED,
-            EmergencyRequestStatus.EN_ROUTE,
-            EmergencyRequestStatus.AT_PATIENT,
-            EmergencyRequestStatus.TRANSPORTING,
-            EmergencyRequestStatus.AT_HOSPITAL,
-          ],
-        },
-      }),
-    );
-  });
-
-  it('ignores completed ambulance history when there is no active request', async () => {
-    const completedAmbulance = {
-      _id: new Types.ObjectId(),
-      status: AmbulanceStatus.COMPLETED,
-    };
-    const availableAmbulance = {
-      _id: new Types.ObjectId(),
-      status: AmbulanceStatus.AVAILABLE,
-    };
-    const nameQuery = {
-      exec: jest
-        .fn()
-        .mockResolvedValue([completedAmbulance, availableAmbulance]),
-    };
-    const ambulanceModel = {
-      find: jest.fn().mockReturnValue(nameQuery),
-      findOne: jest.fn(),
-    };
-    const emergencyRequestModel = {
-      distinct: jest.fn().mockResolvedValue([]),
-    };
-    const service = new EmergencyRequestService(
-      emergencyRequestModel as unknown as Model<EmergencyRequestDocument>,
-      ambulanceModel as unknown as Model<AmbulanceDocument>,
-      {} as Model<HospitalDocument>,
-      {} as ModuleRef,
-      {} as RoleProfilesService,
-    );
-    const findDriverAmbulance = service as unknown as {
-      findDriverAmbulance: (user: {
-        fullName: string;
-        phone: string;
-      }) => Promise<AmbulanceDocument>;
-    };
-
-    await expect(
-      findDriverAmbulance.findDriverAmbulance({
-        fullName: 'Pooja Shrestha',
-        phone: '+9779876543667',
-      }),
-    ).resolves.toBe(availableAmbulance);
-  });
-
-  it('reports no ambulance when the driver has no matching assignment', async () => {
-    const nameQuery = {
-      exec: jest.fn().mockResolvedValue([]),
-    };
-    const ambulanceModel = {
-      find: jest.fn().mockReturnValue(nameQuery),
-      findOne: jest.fn().mockResolvedValue(null),
-    };
-    const service = new EmergencyRequestService(
-      {} as Model<EmergencyRequestDocument>,
-      ambulanceModel as unknown as Model<AmbulanceDocument>,
-      {} as Model<HospitalDocument>,
-      {} as ModuleRef,
-      {} as RoleProfilesService,
-    );
-    const findDriverAmbulance = service as unknown as {
-      findDriverAmbulance: (user: {
-        fullName: string;
-        phone: string;
-      }) => Promise<AmbulanceDocument>;
-    };
-
-    await expect(
-      findDriverAmbulance.findDriverAmbulance({
-        fullName: 'Unassigned Driver',
-        phone: '+9779876543667',
-      }),
-    ).rejects.toThrow('Driver ambulance not found');
-  });
-
-  it('fetches assigned trips for the uniquely matched driver ambulance', async () => {
+describe('EmergencyRequestService driver trips', () => {
+  it('loads the active request by the authenticated unique driver ID', async () => {
     const userId = new Types.ObjectId();
-    const ambulanceId = new Types.ObjectId();
-    const ambulance = { _id: ambulanceId };
-    const trip = { _id: new Types.ObjectId(), status: 'assigned' };
-    const nameQuery = {
-      limit: jest.fn().mockReturnThis(),
-      exec: jest.fn().mockResolvedValue([ambulance]),
-    };
-    const tripQuery = {
-      populate: jest.fn().mockReturnThis(),
-      sort: jest.fn().mockResolvedValue([trip]),
-    };
-    const ambulanceModel = {
-      find: jest.fn().mockReturnValue(nameQuery),
-    };
+    const trip = { _id: new Types.ObjectId(), status: 'at-patient' };
+    const tripQuery = makeTripQuery([trip]);
     const emergencyRequestModel = {
       find: jest.fn().mockReturnValue(tripQuery),
-      distinct: jest.fn().mockResolvedValue([]),
     };
+    const ambulanceModel = { find: jest.fn() };
     const roleProfilesService = {
       assertDriverVerified: jest.fn().mockResolvedValue(undefined),
     };
@@ -303,107 +169,67 @@ describe('EmergencyRequestService driver ambulance lookup', () => {
       {} as Model<HospitalDocument>,
       {} as ModuleRef,
       roleProfilesService as unknown as RoleProfilesService,
+      {} as Model<UserDocument>,
     );
 
-    const result = await service.findMyTrip({
-      _id: userId,
-      fullName: 'Pooja Shrestha',
-      phone: '+9779876543667',
-    } as UserDocument);
+    await expect(
+      service.findMyTrip({
+        _id: userId,
+        fullName: 'Shared Driver Name',
+        phone: '9812345678',
+      } as UserDocument),
+    ).resolves.toEqual([trip]);
 
-    expect(result).toEqual([trip]);
     expect(emergencyRequestModel.find).toHaveBeenCalledWith({
-      assignedAmbulance: ambulanceId,
+      assignedDriverId: userId,
       status: {
-        $nin: [
-          EmergencyRequestStatus.COMPLETED,
-          EmergencyRequestStatus.CANCELLED,
+        $in: [
+          EmergencyRequestStatus.ASSIGNED,
+          EmergencyRequestStatus.EN_ROUTE,
+          EmergencyRequestStatus.AT_PATIENT,
+          EmergencyRequestStatus.TRANSPORTING,
+          EmergencyRequestStatus.AT_HOSPITAL,
         ],
       },
     });
+    expect(ambulanceModel.find).not.toHaveBeenCalled();
     expect(tripQuery.populate).toHaveBeenCalledWith('assignedAmbulance');
     expect(tripQuery.populate).toHaveBeenCalledWith('assignedHospital');
+    expect(tripQuery.limit).toHaveBeenCalledWith(2);
   });
 
-  it('uses the unique exact driver name match before a mismatched phone match', async () => {
+  it('rejects multiple active assignments for one driver', async () => {
+    const userId = new Types.ObjectId();
+    const tripQuery = makeTripQuery([{}, {}]);
+    const service = new EmergencyRequestService(
+      {
+        find: jest.fn().mockReturnValue(tripQuery),
+      } as unknown as Model<EmergencyRequestDocument>,
+      {} as Model<AmbulanceDocument>,
+      {} as Model<HospitalDocument>,
+      {} as ModuleRef,
+      {} as RoleProfilesService,
+      {} as Model<UserDocument>,
+    );
+
+    await expect(
+      service.findMyTrip({
+        _id: userId,
+        phone: '9812345678',
+      } as UserDocument),
+    ).rejects.toThrow(
+      new ConflictException('Driver has more than one active trip assignment'),
+    );
+  });
+
+  it('uses the exact phone relationship for legacy ambulance records', async () => {
     const ambulance = { _id: new Types.ObjectId() };
-    const nameQuery = {
+    const ambulanceQuery = {
       limit: jest.fn().mockReturnThis(),
       exec: jest.fn().mockResolvedValue([ambulance]),
     };
     const ambulanceModel = {
-      find: jest.fn().mockReturnValue(nameQuery),
-      findOne: jest.fn(),
-    };
-    const emergencyRequestModel = {
-      distinct: jest.fn().mockResolvedValue([]),
-    };
-    const service = new EmergencyRequestService(
-      emergencyRequestModel as unknown as Model<EmergencyRequestDocument>,
-      ambulanceModel as unknown as Model<AmbulanceDocument>,
-      {} as Model<HospitalDocument>,
-      {} as ModuleRef,
-      {} as RoleProfilesService,
-    );
-    const findDriverAmbulance = service as unknown as {
-      findDriverAmbulance: (user: {
-        fullName: string;
-        phone: string;
-      }) => Promise<AmbulanceDocument>;
-    };
-
-    await expect(
-      findDriverAmbulance.findDriverAmbulance({
-        fullName: 'Pooja Shrestha',
-        phone: '+9779876543667',
-      }),
-    ).resolves.toBe(ambulance);
-    expect(ambulanceModel.find).toHaveBeenCalledWith({
-      driverName: /^Pooja Shrestha$/i,
-      isActive: true,
-    });
-    expect(ambulanceModel.findOne).not.toHaveBeenCalled();
-  });
-
-  it('rejects ambiguous exact driver name matches', async () => {
-    const nameQuery = {
-      limit: jest.fn().mockReturnThis(),
-      exec: jest.fn().mockResolvedValue([{}, {}]),
-    };
-    const ambulanceModel = {
-      find: jest.fn().mockReturnValue(nameQuery),
-      findOne: jest.fn(),
-    };
-    const emergencyRequestModel = {
-      distinct: jest.fn().mockResolvedValue([]),
-    };
-    const service = new EmergencyRequestService(
-      emergencyRequestModel as unknown as Model<EmergencyRequestDocument>,
-      ambulanceModel as unknown as Model<AmbulanceDocument>,
-      {} as Model<HospitalDocument>,
-      {} as ModuleRef,
-      {} as RoleProfilesService,
-    );
-    const findDriverAmbulance = service as unknown as {
-      findDriverAmbulance: (user: {
-        fullName: string;
-        phone: string;
-      }) => Promise<AmbulanceDocument>;
-    };
-
-    await expect(
-      findDriverAmbulance.findDriverAmbulance({
-        fullName: 'Pooja Shrestha',
-        phone: '+9779876543667',
-      }),
-    ).rejects.toThrow('Driver ambulance assignment is ambiguous');
-    expect(ambulanceModel.findOne).not.toHaveBeenCalled();
-  });
-
-  it('matches canonical user phones to ten-digit ambulance phones', async () => {
-    const ambulance = { _id: new Types.ObjectId() };
-    const ambulanceModel = {
-      findOne: jest.fn().mockResolvedValue(ambulance),
+      find: jest.fn().mockReturnValue(ambulanceQuery),
     };
     const service = new EmergencyRequestService(
       {} as Model<EmergencyRequestDocument>,
@@ -411,30 +237,32 @@ describe('EmergencyRequestService driver ambulance lookup', () => {
       {} as Model<HospitalDocument>,
       {} as ModuleRef,
       {} as RoleProfilesService,
+      {} as Model<UserDocument>,
     );
-    const findDriverAmbulance = service as unknown as {
-      findDriverAmbulance: (user: { phone: string }) => Promise<AmbulanceDocument>;
+    const internals = service as unknown as {
+      findDriverAmbulance: (user: UserDocument) => Promise<AmbulanceDocument>;
     };
 
     await expect(
-      findDriverAmbulance.findDriverAmbulance({ phone: '+9779876543667' }),
+      internals.findDriverAmbulance({
+        fullName: 'Shared Driver Name',
+        phone: '+9779876543667',
+      } as UserDocument),
     ).resolves.toBe(ambulance);
-    expect(ambulanceModel.findOne).toHaveBeenCalledWith({
+
+    expect(ambulanceModel.find).toHaveBeenCalledWith({
       phone: {
         $in: ['+9779876543667', '9876543667', '9779876543667'],
       },
       isActive: true,
     });
+    expect(ambulanceQuery.limit).toHaveBeenCalledWith(2);
   });
-});
 
-describe('EmergencyRequestService driver trip status', () => {
   it('updates the request ID supplied by the driver trip page', async () => {
     const requestId = new Types.ObjectId();
     const user = {} as UserDocument;
-    const request = {
-      id: requestId.toString(),
-    };
+    const request = { id: requestId.toString() };
     const emergencyRequestModel = {
       findById: jest.fn().mockResolvedValue(request),
     };
@@ -444,6 +272,7 @@ describe('EmergencyRequestService driver trip status', () => {
       {} as Model<HospitalDocument>,
       {} as ModuleRef,
       {} as RoleProfilesService,
+      {} as Model<UserDocument>,
     );
     const updateStatus = jest
       .spyOn(service, 'updateStatus')

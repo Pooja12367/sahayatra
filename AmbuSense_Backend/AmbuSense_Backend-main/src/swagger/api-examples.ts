@@ -68,6 +68,7 @@ export const emergencyRequestExample = {
   },
   status: EmergencyRequestStatus.ASSIGNED,
   assignedAmbulance: ambulanceExample,
+  assignedDriverId: objectIdExample,
   assignedHospital: hospitalExample,
   hospitalAssignmentTechnique: HospitalAssignmentTechnique.SYSTEM_AUTO,
   patient: objectIdExample,

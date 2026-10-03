@@ -52,6 +52,13 @@ export class EmergencyRequest {
 
   @Prop({
     type: Types.ObjectId,
+    ref: User.name,
+    default: null,
+  })
+  assignedDriverId?: Types.ObjectId | null;
+
+  @Prop({
+    type: Types.ObjectId,
     ref: 'Hospital',
     default: null,
   })
@@ -106,3 +113,8 @@ export const EmergencyRequestSchema =
   SchemaFactory.createForClass(EmergencyRequest);
 
 EmergencyRequestSchema.index({ pickupLocation: '2dsphere' });
+EmergencyRequestSchema.index({
+  assignedDriverId: 1,
+  status: 1,
+  assignedAt: -1,
+});
