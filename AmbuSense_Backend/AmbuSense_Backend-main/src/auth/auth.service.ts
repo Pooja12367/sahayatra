@@ -235,18 +235,26 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   }
 
   async forgotPassword(dto: ForgotPasswordDto, req: Request) {
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    const matchingUser = await this.usersService.findByEmail(normalizedEmail);
+
     console.log(
-      `[auth] Password reset request received for ${maskEmail(dto.email)}`,
+      `[auth] Password reset request received for ${maskEmail(normalizedEmail)}; application user ${
+        matchingUser ? 'found' : 'not found'
+      }`,
     );
     const authResponse = await this.getAuth().api.requestPasswordReset({
       body: {
-        email: dto.email,
+        email: normalizedEmail,
       },
       headers: this.headersFromRequest(req),
       asResponse: true,
     } as never);
     const payload = await this.readAuthResponse(authResponse);
 
+    console.log(
+      `[auth] Password reset request processed for ${maskEmail(normalizedEmail)} (HTTP ${authResponse.status})`,
+    );
     this.assertAuthResponseOk(authResponse, payload);
 
     return {

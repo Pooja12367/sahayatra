@@ -74,6 +74,20 @@ function maskEmail(email: string) {
   return `${localPart.slice(0, 1)}***@${domain}`;
 }
 
+function sanitizeProviderMessage(message: string, secrets: string[]) {
+  let sanitized = message;
+  for (const secret of secrets) {
+    if (secret) {
+      sanitized = sanitized.replaceAll(secret, '[redacted]');
+    }
+  }
+
+  return sanitized
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted-email]')
+    .replace(/(token=)[^&\s]+/gi, '$1[redacted]')
+    .slice(0, 300);
+}
+
 async function sendResetPasswordEmail(
   configService: ConfigService,
   data: ResetPasswordEmailData,
@@ -94,7 +108,7 @@ async function sendResetPasswordEmail(
   }
 
   console.log(
-    `[auth] Password reset email sending attempted for ${maskEmail(data.email)} via Resend`,
+    `[auth] Resend request attempted for password reset to ${maskEmail(data.email)}`,
   );
 
   let response: Response;
@@ -147,15 +161,55 @@ async function sendResetPasswordEmail(
     throw new Error('Password reset email could not be sent.');
   }
 
+  let responseBody: unknown;
+  try {
+    responseBody = await response.json();
+  } catch {
+    responseBody = undefined;
+  }
+
   if (!response.ok) {
+    const responseData =
+      typeof responseBody === 'object' && responseBody !== null
+        ? (responseBody as Record<string, unknown>)
+        : {};
+    const providerErrorName =
+      typeof responseData.name === 'string'
+        ? sanitizeProviderMessage(responseData.name, [
+            resendApiKey,
+            fromEmail,
+            data.email,
+            data.resetUrl,
+          ])
+        : undefined;
+    const providerErrorMessage =
+      typeof responseData.message === 'string'
+        ? sanitizeProviderMessage(responseData.message, [
+            resendApiKey,
+            fromEmail,
+            data.email,
+            data.resetUrl,
+          ])
+        : undefined;
     console.error(
-      `[auth] Password reset email failed for ${maskEmail(data.email)} via Resend: HTTP ${response.status}`,
+      `[auth] Resend rejected password reset email for ${maskEmail(data.email)}: HTTP ${response.status}${
+        providerErrorName ? ` (${providerErrorName})` : ''
+      }${providerErrorMessage ? ` ${providerErrorMessage}` : ''}`,
     );
     throw new Error('Password reset email could not be sent.');
   }
 
+  const emailId =
+    typeof responseBody === 'object' &&
+    responseBody !== null &&
+    'id' in responseBody &&
+    typeof responseBody.id === 'string'
+      ? responseBody.id
+      : undefined;
   console.log(
-    `[auth] Password reset email sent successfully for ${maskEmail(data.email)} via Resend`,
+    `[auth] Resend accepted password reset email for ${maskEmail(data.email)} (HTTP ${response.status})${
+      emailId ? `, email ID ${emailId}` : ''
+    }`,
   );
 }
 
@@ -182,6 +236,26 @@ function getBetterAuthOptions(
   return {
     secret: configService.get<string>('BETTER_AUTH_SECRET'),
     baseURL: getBackendUrl(configService),
+    logger: {
+      log: (level, message, ...args) => {
+        if (message === 'Reset Password: User not found') {
+          console.error(
+            '[Better Auth]: Reset Password user lookup did not match',
+          );
+          return;
+        }
+
+        if (level === 'error') {
+          console.error(`[Better Auth]: ${message}`, ...args);
+        } else if (level === 'warn') {
+          console.warn(`[Better Auth]: ${message}`, ...args);
+        } else if (level === 'debug') {
+          console.debug(`[Better Auth]: ${message}`, ...args);
+        } else {
+          console.info(`[Better Auth]: ${message}`, ...args);
+        }
+      },
+    },
     database: mongodbAdapter(client.db(databaseName), {
       client,
       transaction: false,
@@ -190,7 +264,9 @@ function getBetterAuthOptions(
       enabled: true,
       resetPasswordTokenExpiresIn,
       sendResetPassword: async ({ user, token }) => {
-        console.log('[auth] Password reset token generated');
+        console.log(
+          `[auth] Password reset email callback invoked for ${maskEmail(user.email)}`,
+        );
         const resetUrl = `${frontendUrl}/reset-password?token=${encodeURIComponent(
           token,
         )}`;
