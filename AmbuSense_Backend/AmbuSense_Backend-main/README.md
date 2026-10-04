@@ -47,9 +47,9 @@ localhost and private-network addresses are rejected. Configure the frontend's
 building the frontend. Its production build rejects missing or local backend
 URLs. The configured frontend origin is allowed by the backend's HTTP and
 Socket.IO CORS checks. Also configure `MONGODB_URI`, `MONGODB_DB_NAME`,
-`BETTER_AUTH_SECRET`, and `NODE_ENV=production` in the backend hosting
-environment. Configure SMTP credentials (or the Resend alternatives) there as
-well; do not commit secrets.
+`BETTER_AUTH_SECRET`, `NODE_ENV=production`, `RESEND_API_KEY`, and
+`RESEND_FROM` in the backend hosting environment. `RESEND_FROM` must use a
+sender address/domain verified with Resend. Do not commit secrets.
 
 ## Compile and run the project
 
