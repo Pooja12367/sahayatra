@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import type { Auth } from 'better-auth';
 import { MongoClient } from 'mongodb';
+import nodemailer from 'nodemailer';
 import { isLocalOrPrivateHost, validatePublicUrl } from '../config/public-url';
 
 type BetterAuthModule = typeof import('better-auth');
@@ -74,8 +75,10 @@ function maskEmail(email: string) {
   return `${localPart.slice(0, 1)}***@${domain}`;
 }
 
-function sanitizeProviderMessage(message: string, secrets: string[]) {
-  let sanitized = message;
+function sanitizeSmtpDiagnostic(value: unknown, secrets: string[]) {
+  if (typeof value !== 'string') return undefined;
+
+  let sanitized = value;
   for (const secret of secrets) {
     if (secret) {
       sanitized = sanitized.replaceAll(secret, '[redacted]');
@@ -88,42 +91,90 @@ function sanitizeProviderMessage(message: string, secrets: string[]) {
     .slice(0, 300);
 }
 
+function getSmtpErrorDetails(error: unknown, secrets: string[]) {
+  if (typeof error !== 'object' || error === null) {
+    return {
+      message: sanitizeSmtpDiagnostic(error, secrets) ?? 'Unknown SMTP error',
+    };
+  }
+
+  const details = error as Record<string, unknown>;
+  const code = sanitizeSmtpDiagnostic(details.code, secrets);
+  const command = sanitizeSmtpDiagnostic(details.command, secrets);
+  const message = sanitizeSmtpDiagnostic(details.message, secrets);
+  const response = sanitizeSmtpDiagnostic(details.response, secrets);
+  const responseCode =
+    typeof details.responseCode === 'number' &&
+    Number.isInteger(details.responseCode)
+      ? details.responseCode
+      : undefined;
+
+  return {
+    ...(code ? { code } : {}),
+    ...(responseCode ? { responseCode } : {}),
+    ...(command ? { command } : {}),
+    ...(message ? { message } : {}),
+    ...(response ? { response } : {}),
+  };
+}
+
 async function sendResetPasswordEmail(
   configService: ConfigService,
   data: ResetPasswordEmailData,
 ) {
-  const resendApiKey = configService.get<string>('RESEND_API_KEY')?.trim();
-  const fromEmail =
-    configService.get<string>('RESEND_FROM')?.trim() ||
-    configService.get<string>('PASSWORD_RESET_FROM_EMAIL')?.trim() ||
-    configService.get<string>('RESEND_FROM_EMAIL')?.trim();
+  const smtpHost = configService.get<string>('SMTP_HOST')?.trim();
+  const smtpPort = Number(configService.get<string>('SMTP_PORT') ?? 587);
+  const configuredSecure = configService.get<string>('SMTP_SECURE')?.trim();
+  const smtpUser = configService.get<string>('SMTP_USER')?.trim();
+  const smtpPassword = configService.get<string>('SMTP_PASSWORD');
+  const smtpFrom = configService.get<string>('SMTP_FROM')?.trim();
 
-  if (!resendApiKey || !fromEmail) {
+  if (!smtpHost || !smtpUser || !smtpPassword || !smtpFrom) {
     console.error(
-      `[auth] Password reset email delivery is not configured for ${maskEmail(data.email)}`,
+      `[auth] Password reset SMTP delivery is not configured for ${maskEmail(data.email)}`,
     );
     throw new Error(
-      'Password reset email is not configured. Set RESEND_API_KEY and RESEND_FROM.',
+      'Password reset email is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD, and SMTP_FROM.',
     );
   }
 
+  if (!Number.isInteger(smtpPort) || smtpPort <= 0) {
+    throw new Error('SMTP_PORT must be a positive integer.');
+  }
+
+  if (
+    configuredSecure !== undefined &&
+    configuredSecure !== 'true' &&
+    configuredSecure !== 'false'
+  ) {
+    throw new Error('SMTP_SECURE must be either true or false.');
+  }
+
+  const smtpSecure = configuredSecure
+    ? configuredSecure === 'true'
+    : smtpPort === 465;
+
   console.log(
-    `[auth] Resend request attempted for password reset to ${maskEmail(data.email)}`,
+    `[auth] Password reset SMTP delivery attempted for ${maskEmail(data.email)} (port ${smtpPort}, secure=${smtpSecure})`,
   );
 
-  let response: Response;
   try {
-    response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${resendApiKey}`,
-        'Content-Type': 'application/json',
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      requireTLS: smtpPort === 587 && !smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPassword,
       },
-      body: JSON.stringify({
-        from: fromEmail,
-        to: data.email,
-        subject: 'Reset your Sahayatra password',
-        html: `
+    });
+
+    const result = await transporter.sendMail({
+      from: smtpFrom,
+      to: data.email,
+      subject: 'Reset your Sahayatra password',
+      html: `
           <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
             <h2>Reset your Sahayatra password</h2>
             <p>Hello${data.name ? ` ${data.name}` : ''},</p>
@@ -138,79 +189,29 @@ async function sendResetPasswordEmail(
             <p>If you did not request this, you can ignore this email.</p>
           </div>
         `,
-        text: `Reset your Sahayatra password: ${data.resetUrl}`,
-      }),
+      text: `Reset your Sahayatra password: ${data.resetUrl}`,
     });
+    console.log(
+      `[auth] Password reset email sent successfully for ${maskEmail(data.email)} (${result.messageId})`,
+    );
   } catch (error) {
-    const errorCode =
-      typeof error === 'object' &&
-      error !== null &&
-      'cause' in error &&
-      typeof error.cause === 'object' &&
-      error.cause !== null &&
-      'code' in error.cause &&
-      typeof error.cause.code === 'string' &&
-      /^[A-Z0-9_]+$/.test(error.cause.code)
-        ? error.cause.code
-        : undefined;
     console.error(
-      `[auth] Password reset email failed for ${maskEmail(data.email)} via Resend${
-        errorCode ? ` (${errorCode})` : ''
-      }`,
+      `[auth] Password reset SMTP delivery failed for ${maskEmail(data.email)}: ${JSON.stringify(
+        getSmtpErrorDetails(error, [
+          smtpHost,
+          String(smtpPort),
+          smtpUser,
+          smtpPassword,
+          Buffer.from(smtpPassword, 'utf8').toString('base64'),
+          Buffer.from(smtpPassword, 'utf8').toString('base64url'),
+          smtpFrom,
+          data.email,
+          data.resetUrl,
+        ]),
+      )}`,
     );
     throw new Error('Password reset email could not be sent.');
   }
-
-  let responseBody: unknown;
-  try {
-    responseBody = await response.json();
-  } catch {
-    responseBody = undefined;
-  }
-
-  if (!response.ok) {
-    const responseData =
-      typeof responseBody === 'object' && responseBody !== null
-        ? (responseBody as Record<string, unknown>)
-        : {};
-    const providerErrorName =
-      typeof responseData.name === 'string'
-        ? sanitizeProviderMessage(responseData.name, [
-            resendApiKey,
-            fromEmail,
-            data.email,
-            data.resetUrl,
-          ])
-        : undefined;
-    const providerErrorMessage =
-      typeof responseData.message === 'string'
-        ? sanitizeProviderMessage(responseData.message, [
-            resendApiKey,
-            fromEmail,
-            data.email,
-            data.resetUrl,
-          ])
-        : undefined;
-    console.error(
-      `[auth] Resend rejected password reset email for ${maskEmail(data.email)}: HTTP ${response.status}${
-        providerErrorName ? ` (${providerErrorName})` : ''
-      }${providerErrorMessage ? ` ${providerErrorMessage}` : ''}`,
-    );
-    throw new Error('Password reset email could not be sent.');
-  }
-
-  const emailId =
-    typeof responseBody === 'object' &&
-    responseBody !== null &&
-    'id' in responseBody &&
-    typeof responseBody.id === 'string'
-      ? responseBody.id
-      : undefined;
-  console.log(
-    `[auth] Resend accepted password reset email for ${maskEmail(data.email)} (HTTP ${response.status})${
-      emailId ? `, email ID ${emailId}` : ''
-    }`,
-  );
 }
 
 function getBetterAuthOptions(
