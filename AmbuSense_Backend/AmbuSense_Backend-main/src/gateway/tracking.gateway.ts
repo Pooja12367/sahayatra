@@ -27,24 +27,37 @@ import {
 } from '../emergency-request/entities/emergency-request.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
 import { UserDocument } from '../users/entities/user.entity';
+import { validatePublicUrl } from '../config/public-url';
 
 function isAllowedOrigin(origin?: string) {
   if (!origin) return true;
 
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'https://ambu-sense-frontend.vercel.app',
-    'https://ambusense-frontend.vercel.app',
-  ];
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  const allowedOrigins = isProduction
+    ? []
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
+  if (!isProduction) {
+    allowedOrigins.push(
+      'https://ambu-sense-frontend.vercel.app',
+      'https://ambusense-frontend.vercel.app',
+    );
+  }
+
   const configuredFrontendUrl =
-    process.env.FRONTEND_URL ?? process.env.APP_FRONTEND_URL;
+    process.env.FRONTEND_URL ??
+    (!isProduction
+      ? (process.env.APP_FRONTEND_URL ?? process.env.PUBLIC_FRONTEND_URL)
+      : undefined);
 
   if (configuredFrontendUrl) {
-    try {
-      allowedOrigins.push(new URL(configuredFrontendUrl).origin);
-    } catch {
-      return false;
-    }
+    allowedOrigins.push(
+      validatePublicUrl(configuredFrontendUrl, 'FRONTEND_URL', isProduction)
+        .origin,
+    );
+  } else if (isProduction) {
+    return false;
   }
 
   return allowedOrigins.includes(origin);

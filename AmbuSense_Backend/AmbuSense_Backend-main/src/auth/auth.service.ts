@@ -17,7 +17,7 @@ import { UserRole } from '../constants/enums';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
 import { UserDocument } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
-import { AmbuSenseAuth, createBetterAuth } from './better-auth.provider';
+import { SahayatraAuth, createBetterAuth } from './better-auth.provider';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -46,7 +46,7 @@ function maskEmail(email: string) {
 
 @Injectable()
 export class AuthService implements OnModuleInit, OnModuleDestroy {
-  private auth?: AmbuSenseAuth;
+  private auth?: SahayatraAuth;
   private mongoClient?: MongoClient;
 
   static resolveDefaultAdminConfig(configService: ConfigService) {
@@ -403,7 +403,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     ]);
   }
 
-  private getAuth(): AmbuSenseAuth {
+  private getAuth(): SahayatraAuth {
     if (!this.auth) {
       throw new Error('Better Auth has not been initialized');
     }
@@ -496,4 +496,3 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     throw new HttpException(message, authResponse.status);
   }
 }
-

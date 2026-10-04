@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Auth } from 'better-auth';
 import { MongoClient } from 'mongodb';
 import nodemailer from 'nodemailer';
+import { isLocalOrPrivateHost, validatePublicUrl } from '../config/public-url';
 
 type BetterAuthModule = typeof import('better-auth');
 type MongoAdapterModule = typeof import('@better-auth/mongo-adapter');
@@ -13,35 +14,59 @@ type ResetPasswordEmailData = {
   resetUrl: string;
 };
 
-const dynamicImport = new Function(
-  'specifier',
-  'return import(specifier)',
-) as <TModule>(specifier: string) => Promise<TModule>;
+const dynamicImport = new Function('specifier', 'return import(specifier)') as <
+  TModule,
+>(
+  specifier: string,
+) => Promise<TModule>;
 
-export type AmbuSenseAuth = Auth<ReturnType<typeof getBetterAuthOptions>>;
+export type SahayatraAuth = Auth<ReturnType<typeof getBetterAuthOptions>>;
 
-function getFrontendUrl(configService: ConfigService) {
-  const configuredUrl = (
-    configService.get<string>('FRONTEND_URL') ??
-    configService.get<string>('APP_FRONTEND_URL')
-  )?.trim();
+function getConfiguredUrl(
+  configService: ConfigService,
+  names: string[],
+  kind: 'frontend' | 'backend',
+) {
+  const isProduction =
+    (configService.get<string>('NODE_ENV') ??
+      process.env.NODE_ENV ??
+      'development') === 'production';
+
+  const configuredUrl = (isProduction ? [names[0]] : names)
+    .map((name) => configService.get<string>(name))
+    .find((value) => typeof value === 'string' && value.trim().length > 0)
+    ?.trim();
 
   if (!configuredUrl) {
-    throw new Error('FRONTEND_URL is required to send password reset links.');
+    if (!isProduction) {
+      const fallback =
+        kind === 'frontend' ? 'http://localhost:3000' : 'http://localhost:5002';
+      return fallback;
+    }
+
+    throw new Error(
+      `${names[0]} is required in production so password reset links and auth callbacks point to the deployed application.`,
+    );
   }
 
-  let frontendUrl: URL;
-  try {
-    frontendUrl = new URL(configuredUrl);
-  } catch {
-    throw new Error('FRONTEND_URL must be a valid absolute URL.');
-  }
+  const parsedUrl = validatePublicUrl(configuredUrl, names[0], isProduction);
+  return parsedUrl.toString().replace(/\/$/, '');
+}
 
-  if (!['http:', 'https:'].includes(frontendUrl.protocol)) {
-    throw new Error('FRONTEND_URL must use HTTP or HTTPS.');
-  }
+function getFrontendUrl(configService: ConfigService) {
+  return getConfiguredUrl(
+    configService,
+    ['FRONTEND_URL', 'APP_FRONTEND_URL', 'PUBLIC_FRONTEND_URL'],
+    'frontend',
+  );
+}
 
-  return frontendUrl.toString().replace(/\/$/, '');
+function getBackendUrl(configService: ConfigService) {
+  return getConfiguredUrl(
+    configService,
+    ['BETTER_AUTH_URL', 'APP_BACKEND_URL', 'PUBLIC_BACKEND_URL'],
+    'backend',
+  );
 }
 
 function maskEmail(email: string) {
@@ -83,10 +108,10 @@ async function sendResetPasswordEmail(
       const result = await transporter.sendMail({
         from: smtpFrom,
         to: data.email,
-        subject: 'Reset your AmbuSense password',
+        subject: 'Reset your Sahayatra password',
         html: `
           <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
-            <h2>Reset your AmbuSense password</h2>
+            <h2>Reset your Sahayatra password</h2>
             <p>Hello${data.name ? ` ${data.name}` : ''},</p>
             <p>Use the button below to create a new password. This link expires soon.</p>
             <p>
@@ -99,7 +124,7 @@ async function sendResetPasswordEmail(
             <p>If you did not request this, you can ignore this email.</p>
           </div>
         `,
-        text: `Reset your AmbuSense password: ${data.resetUrl}`,
+        text: `Reset your Sahayatra password: ${data.resetUrl}`,
       });
 
       console.log(
@@ -129,10 +154,10 @@ async function sendResetPasswordEmail(
       body: JSON.stringify({
         from: fromEmail,
         to: data.email,
-        subject: 'Reset your AmbuSense password',
+        subject: 'Reset your Sahayatra password',
         html: `
           <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a">
-            <h2>Reset your AmbuSense password</h2>
+            <h2>Reset your Sahayatra password</h2>
             <p>Hello${data.name ? ` ${data.name}` : ''},</p>
             <p>Use the button below to create a new password. This link expires soon.</p>
             <p>
@@ -145,7 +170,7 @@ async function sendResetPasswordEmail(
             <p>If you did not request this, you can ignore this email.</p>
           </div>
         `,
-        text: `Reset your AmbuSense password: ${data.resetUrl}`,
+        text: `Reset your Sahayatra password: ${data.resetUrl}`,
       }),
     });
 
@@ -176,19 +201,24 @@ function getBetterAuthOptions(
   configService: ConfigService,
   mongodbAdapter: MongodbAdapter,
 ) {
-  const databaseName = configService.get<string>('MONGODB_DB_NAME');
+  const databaseName = configService.get<string>('MONGODB_DB_NAME')?.trim();
+  if (!databaseName) {
+    throw new Error('MONGODB_DB_NAME is required for Better Auth.');
+  }
   const configuredExpiry = Number(
     configService.get<string>('RESET_PASSWORD_TOKEN_EXPIRES_IN') ?? 3600,
   );
-  const resetPasswordTokenExpiresIn =
-    Number.isFinite(configuredExpiry) && configuredExpiry > 0
-      ? configuredExpiry
-      : 3600;
+  if (!Number.isFinite(configuredExpiry) || configuredExpiry <= 0) {
+    throw new Error(
+      'RESET_PASSWORD_TOKEN_EXPIRES_IN must be a positive number.',
+    );
+  }
+  const resetPasswordTokenExpiresIn = configuredExpiry;
   const frontendUrl = getFrontendUrl(configService);
 
   return {
     secret: configService.get<string>('BETTER_AUTH_SECRET'),
-    baseURL: configService.get<string>('BETTER_AUTH_URL'),
+    baseURL: getBackendUrl(configService),
     database: mongodbAdapter(client.db(databaseName), {
       client,
       transaction: false,
@@ -246,12 +276,34 @@ function getBetterAuthOptions(
 
 export async function createBetterAuth(
   configService: ConfigService,
-): Promise<{ auth: AmbuSenseAuth; client: MongoClient }> {
+): Promise<{ auth: SahayatraAuth; client: MongoClient }> {
   const uri = configService.get<string>('MONGODB_URI');
   const secret = configService.get<string>('BETTER_AUTH_SECRET');
+  const isProduction =
+    (configService.get<string>('NODE_ENV') ??
+      process.env.NODE_ENV ??
+      'development') === 'production';
 
   if (!uri) {
     throw new Error('MONGODB_URI is required for Better Auth');
+  }
+
+  if (isProduction) {
+    let mongodbUrl: URL;
+    try {
+      mongodbUrl = new URL(uri);
+    } catch {
+      throw new Error('MONGODB_URI must be a valid MongoDB connection URL.');
+    }
+
+    if (
+      !['mongodb:', 'mongodb+srv:'].includes(mongodbUrl.protocol) ||
+      isLocalOrPrivateHost(mongodbUrl.hostname)
+    ) {
+      throw new Error(
+        'MONGODB_URI must point to the production MongoDB service, not a local or private network host.',
+      );
+    }
   }
 
   if (!secret) {
@@ -270,7 +322,9 @@ export async function createBetterAuth(
   ]);
 
   return {
-    auth: betterAuth(getBetterAuthOptions(client, configService, mongodbAdapter)),
+    auth: betterAuth(
+      getBetterAuthOptions(client, configService, mongodbAdapter),
+    ),
     client,
   };
 }

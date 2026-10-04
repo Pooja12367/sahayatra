@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import fs from 'fs';
+import { validatePublicUrl } from './config/public-url';
 import express, {
   type NextFunction,
   type Request,
@@ -59,17 +60,35 @@ async function bootstrap() {
 
   app.use(cookieParser());
 
-  const ALLOWED_ORIGINS = [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'https://ambu-sense-frontend.vercel.app',
-    'https://ambusense-frontend.vercel.app',
-  ];
+  const isProduction =
+    (configService.get<string>('NODE_ENV') ??
+      process.env.NODE_ENV ??
+      'development') === 'production';
+
+  const ALLOWED_ORIGINS = isProduction
+    ? []
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
   const configuredFrontendUrl =
     configService.get<string>('FRONTEND_URL') ??
-    configService.get<string>('APP_FRONTEND_URL');
+    (!isProduction
+      ? (configService.get<string>('APP_FRONTEND_URL') ??
+        configService.get<string>('PUBLIC_FRONTEND_URL'))
+      : undefined);
   if (configuredFrontendUrl) {
-    ALLOWED_ORIGINS.push(new URL(configuredFrontendUrl).origin);
+    ALLOWED_ORIGINS.push(
+      validatePublicUrl(configuredFrontendUrl, 'FRONTEND_URL', isProduction)
+        .origin,
+    );
+  } else if (isProduction) {
+    throw new Error('FRONTEND_URL is required in production.');
+  }
+
+  if (!isProduction) {
+    ALLOWED_ORIGINS.push(
+      'https://sahayatra-frontend.vercel.app',
+      'https://sahayatra-frontend.vercel.app',
+    );
   }
 
   app.enableCors({
@@ -117,9 +136,9 @@ async function bootstrap() {
 
     if (swaggerPassword) {
       const config = new DocumentBuilder()
-        .setTitle('AmbuSense API')
+        .setTitle('Sahayatra API')
         .setDescription(
-          'API documentation for AmbuSense ambulance dispatch, emergency requests, driver workflows, uploads, and authentication.',
+          'API documentation for Sahayatra ambulance dispatch, emergency requests, driver workflows, uploads, and authentication.',
         )
         .setVersion('1.0')
         .addCookieAuth(
@@ -148,7 +167,11 @@ async function bootstrap() {
 
   const PORT = configService.get<number>('PORT') ?? 5002;
   await app.listen(PORT, '0.0.0.0');
-  console.log(`API running on http://localhost:${PORT}/api`);
+  if (NODE_ENV === 'production') {
+    console.log(`API listening on port ${PORT}`);
+  } else {
+    console.log(`API running on http://localhost:${PORT}/api`);
+  }
   if (NODE_ENV !== 'production' && process.env.SWAGGER_PASSWORD) {
     console.log(`Swagger docs: http://localhost:${PORT}/api/docs`);
   }

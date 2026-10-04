@@ -43,7 +43,7 @@ export default function LocationPreviewMap({
         ? createAmbulanceIcon()
         : iconType === "patient"
           ? createPatientIcon()
-          : createAmbulanceIcon(); // Default to ambulance for generic locations if needed, or we could keep a generic one. Let's use ambulance as default fallback for now since it's AmbuSense.
+          : createAmbulanceIcon(); // Default to ambulance for generic locations if needed, or we could keep a generic one. Let's use ambulance as default fallback for now since it's Sahayatra.
 
   return (
     <div className="relative z-0 mt-3 overflow-hidden rounded-lg border">

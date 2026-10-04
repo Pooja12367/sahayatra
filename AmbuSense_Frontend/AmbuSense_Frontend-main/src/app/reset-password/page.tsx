@@ -104,7 +104,7 @@ function ResetPasswordContent() {
 
   return (
     <AuthCard
-      description="Choose a new password for your AmbuSense account."
+      description="Choose a new password for your Sahayatra account."
       title="Create a new password"
     >
       <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>

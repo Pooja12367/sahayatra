@@ -14,11 +14,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    template: "%s | AmbuSense",
-    default: "AmbuSense - Emergency Ambulance Dispatch",
+    template: "%s | Sahayatra",
+    default: "Sahayatra - Emergency Ambulance Dispatch",
   },
   description: "Real-time emergency ambulance dispatch, tracking, and management system.",
-  keywords: ["ambulance", "dispatch", "emergency", "tracking", "AmbuSense"],
+  keywords: ["ambulance", "dispatch", "emergency", "tracking", "Sahayatra"],
 };
 
 export default function RootLayout({

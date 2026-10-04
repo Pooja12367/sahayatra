@@ -41,11 +41,15 @@ seconds (3600 by default).
 
 For deployment, set `FRONTEND_URL` to the deployed frontend origin, such as
 `https://your-frontend.example.com`, and set `BETTER_AUTH_URL` to the deployed
-backend origin. Configure the frontend's `NEXT_PUBLIC_API_URL` to the deployed
-backend API URL ending in `/api`. The configured frontend origin is allowed by
-the backend's HTTP and Socket.IO CORS checks. Configure the database, auth
-secret, and SMTP credentials in the hosting provider's environment settings;
-do not commit them.
+backend origin. Production requires both values to be public HTTPS URLs;
+localhost and private-network addresses are rejected. Configure the frontend's
+`NEXT_PUBLIC_API_URL` to the deployed backend API URL ending in `/api` before
+building the frontend. Its production build rejects missing or local backend
+URLs. The configured frontend origin is allowed by the backend's HTTP and
+Socket.IO CORS checks. Also configure `MONGODB_URI`, `MONGODB_DB_NAME`,
+`BETTER_AUTH_SECRET`, and `NODE_ENV=production` in the backend hosting
+environment. Configure SMTP credentials (or the Resend alternatives) there as
+well; do not commit secrets.
 
 ## Compile and run the project
 

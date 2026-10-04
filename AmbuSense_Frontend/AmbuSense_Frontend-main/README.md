@@ -1,4 +1,6 @@
-# AmbuSense_FrontendThis is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sahayatra Frontend
+
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
 
@@ -18,7 +20,9 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 Set `NEXT_PUBLIC_API_URL` to the backend API base URL, including `/api` (locally,
 `http://localhost:5002/api`). For deployment, use the public backend URL, for
-example `https://your-backend.example.com/api`.
+example `https://your-backend.example.com/api`. Set this variable in the
+frontend hosting environment before building; production builds reject missing,
+localhost, private-network, or non-HTTPS backend URLs.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
