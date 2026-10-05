@@ -22,15 +22,29 @@ const dynamicImport = new Function('specifier', 'return import(specifier)') as <
 
 export type SahayatraAuth = Auth<ReturnType<typeof getBetterAuthOptions>>;
 
-function getConfiguredUrl(
+const productionUrls = {
+  frontend: 'https://ambu-sense-frontend.vercel.app',
+  backend: 'https://ambusense-backend.onrender.com',
+} as const;
+
+function isProductionEnvironment(configService: ConfigService) {
+  return (
+    (configService.get<string>('NODE_ENV') ??
+      process.env.NODE_ENV ??
+      'development') === 'production' ||
+    Boolean(
+      configService.get<string>('RENDER_SERVICE_ID') ??
+        process.env.RENDER_SERVICE_ID,
+    )
+  );
+}
+
+export function getConfiguredUrl(
   configService: ConfigService,
   names: string[],
   kind: 'frontend' | 'backend',
 ) {
-  const isProduction =
-    (configService.get<string>('NODE_ENV') ??
-      process.env.NODE_ENV ??
-      'development') === 'production';
+  const isProduction = isProductionEnvironment(configService);
 
   const configuredUrl = (isProduction ? [names[0]] : names)
     .map((name) => configService.get<string>(name))
@@ -50,6 +64,20 @@ function getConfiguredUrl(
   }
 
   const parsedUrl = validatePublicUrl(configuredUrl, names[0], isProduction);
+  if (isProduction && parsedUrl.port) {
+    throw new Error(
+      `${names[0]} must use the standard HTTPS port in production.`,
+    );
+  }
+  if (
+    isProduction &&
+    (parsedUrl.origin !== productionUrls[kind] ||
+      parsedUrl.pathname !== '/')
+  ) {
+    throw new Error(
+      `${names[0]} must be set to ${productionUrls[kind]} in production.`,
+    );
+  }
   return parsedUrl.toString().replace(/\/$/, '');
 }
 
@@ -67,6 +95,12 @@ function getBackendUrl(configService: ConfigService) {
     ['BETTER_AUTH_URL', 'APP_BACKEND_URL', 'PUBLIC_BACKEND_URL'],
     'backend',
   );
+}
+
+export function buildResetPasswordUrl(frontendUrl: string, token: string) {
+  const resetUrl = new URL('/reset-password', frontendUrl);
+  resetUrl.searchParams.set('token', token);
+  return resetUrl.toString();
 }
 
 function maskEmail(email: string) {
@@ -268,9 +302,7 @@ function getBetterAuthOptions(
         console.log(
           `[auth] Password reset email callback invoked for ${maskEmail(user.email)}`,
         );
-        const resetUrl = `${frontendUrl}/reset-password?token=${encodeURIComponent(
-          token,
-        )}`;
+        const resetUrl = buildResetPasswordUrl(frontendUrl, token);
 
         await sendResetPasswordEmail(configService, {
           email: user.email,
@@ -317,10 +349,7 @@ export async function createBetterAuth(
 ): Promise<{ auth: SahayatraAuth; client: MongoClient }> {
   const uri = configService.get<string>('MONGODB_URI');
   const secret = configService.get<string>('BETTER_AUTH_SECRET');
-  const isProduction =
-    (configService.get<string>('NODE_ENV') ??
-      process.env.NODE_ENV ??
-      'development') === 'production';
+  const isProduction = isProductionEnvironment(configService);
 
   if (!uri) {
     throw new Error('MONGODB_URI is required for Better Auth');

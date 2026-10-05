@@ -259,7 +259,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
 
     return {
       message:
-        'If this email exists in our system, check your email for the reset link.',
+        'If this email is linked to an account and delivery succeeds, reset instructions will arrive shortly.',
     };
   }
 

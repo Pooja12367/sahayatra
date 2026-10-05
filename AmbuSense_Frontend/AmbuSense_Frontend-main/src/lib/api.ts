@@ -48,6 +48,7 @@ function getApiBaseUrl() {
     const apiPath = apiUrl.pathname.replace(/\/+$/, "");
     if (
       apiUrl.protocol !== "https:" ||
+      apiUrl.port !== "" ||
       apiUrl.username ||
       apiUrl.password ||
       apiUrl.search ||
@@ -57,7 +58,7 @@ function getApiBaseUrl() {
       !apiPath.endsWith("/api")
     ) {
       throw new Error(
-        "NEXT_PUBLIC_API_URL must be a public HTTPS backend API URL ending in /api in production; localhost and private network hosts are not allowed.",
+        "NEXT_PUBLIC_API_URL must be a public HTTPS backend API URL on the standard port ending in /api in production; localhost and private network hosts are not allowed.",
       );
     }
   }
