@@ -43,8 +43,12 @@ export function useCreateAmbulance() {
       const { data } = await api.post<Ambulance>("/ambulances", payload);
       return data;
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ambulanceKeys.all }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ambulanceKeys.all }),
+        queryClient.invalidateQueries({ queryKey: ["drivers"] }),
+      ]);
+    },
   });
 }
 

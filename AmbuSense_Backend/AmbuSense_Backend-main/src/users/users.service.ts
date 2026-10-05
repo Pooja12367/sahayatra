@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 import { UserRole } from '../constants/enums';
 import { FindUsersQueryDto } from './dto/find-users-query.dto';
 import { User, UserDocument } from './entities/user.entity';
+import { getNepalPhoneVariants } from './phone.util';
 
 export type SanitizedUser = {
   id: string;
@@ -35,17 +36,14 @@ export class UsersService {
   }
 
   async findByPhone(phone: string): Promise<UserDocument | null> {
-    const normalized = this.normalizePhone(phone);
-    const original = phone.trim();
+    const variants = getNepalPhoneVariants(phone);
+    if (variants.length === 0) {
+      return null;
+    }
 
     return this.userModel
       .findOne({
-        $or: [
-          { phone: normalized },
-          { phone: original },
-          { phone: original.replace(/^\+977/, '') },
-          { phone: original.replace(/^977/, '') },
-        ],
+        phone: { $in: variants },
       })
       .exec();
   }
@@ -174,31 +172,6 @@ export class UsersService {
     if (!Types.ObjectId.isValid(id)) {
       throw new NotFoundException('User not found');
     }
-  }
-
-  private normalizePhone(phone: string): string {
-    const compact = phone.trim().replace(/[\s-]+/g, '');
-    if (!compact) {
-      return '';
-    }
-
-    let digits = compact.replace(/\D/g, '');
-
-    if (compact.startsWith('+977')) {
-      digits = compact.slice(4).replace(/\D/g, '');
-    } else if (compact.startsWith('977')) {
-      digits = compact.slice(3).replace(/\D/g, '');
-    }
-
-    if (digits.startsWith('0')) {
-      digits = digits.slice(1);
-    }
-
-    if (!/^9\d{9}$/.test(digits)) {
-      return '';
-    }
-
-    return `+977${digits}`;
   }
 
   private escapeRegex(value: string) {

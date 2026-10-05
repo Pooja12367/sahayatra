@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { api } from "@/lib/api";
+import { socket } from "@/lib/socket";
 import { useAuthStore } from "@/stores/auth-store";
 import type {
   AuthMeResponse,
@@ -84,6 +85,7 @@ export function useLogout() {
       await api.post("/auth/logout");
     },
     onSuccess: () => {
+      socket.disconnect();
       clearAuth();
       queryClient.removeQueries({ queryKey: authKeys.me });
     },

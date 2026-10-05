@@ -1,10 +1,12 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
 import { AmbulanceStatus } from '../../constants/enums';
+import { User } from '../../users/entities/user.entity';
 
 export type AmbulanceDocument = HydratedDocument<Ambulance>;
 
 export interface IAmbulance {
+  driverId?: string | null;
   ambulanceCode: string;
   driverName: string;
   phone: string;
@@ -27,13 +29,16 @@ export interface IAmbulance {
 
 @Schema({ timestamps: true })
 export class Ambulance {
+  @Prop({ type: Types.ObjectId, ref: User.name, default: null })
+  driverId!: Types.ObjectId | null;
+
   @Prop({ required: true, unique: true, trim: true })
   ambulanceCode!: string;
 
-  @Prop({ required: true, trim: true })
+  @Prop({ type: String, trim: true, default: '' })
   driverName!: string;
 
-  @Prop({ required: true, trim: true, maxlength: 10 })
+  @Prop({ type: String, trim: true, maxlength: 10, default: '' })
   phone!: string;
 
   @Prop({
@@ -91,3 +96,10 @@ export class Ambulance {
 
 export const AmbulanceSchema = SchemaFactory.createForClass(Ambulance);
 AmbulanceSchema.index({ currentLocation: '2dsphere' });
+AmbulanceSchema.index(
+  { driverId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { driverId: { $type: 'objectId' } },
+  },
+);

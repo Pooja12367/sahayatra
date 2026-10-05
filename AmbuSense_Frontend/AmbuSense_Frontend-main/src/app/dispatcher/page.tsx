@@ -124,6 +124,8 @@ function useDispatcherSocketInvalidation() {
     socket.on("emergency.request.dispatched", invalidateOperationalData);
     socket.on("emergency.request.cancelled", invalidateOperationalData);
     socket.on("emergency.request.deleted", invalidateOperationalData);
+    socket.on("ambulance.updated", invalidateOperationalData);
+    socket.on("ambulance.status.updated", invalidateOperationalData);
 
     return () => {
       socket.off("emergency.request.created", invalidateRequests);
@@ -131,6 +133,8 @@ function useDispatcherSocketInvalidation() {
       socket.off("emergency.request.dispatched", invalidateOperationalData);
       socket.off("emergency.request.cancelled", invalidateOperationalData);
       socket.off("emergency.request.deleted", invalidateOperationalData);
+      socket.off("ambulance.updated", invalidateOperationalData);
+      socket.off("ambulance.status.updated", invalidateOperationalData);
       releaseSocketConnection(token);
     };
   }, [queryClient]);

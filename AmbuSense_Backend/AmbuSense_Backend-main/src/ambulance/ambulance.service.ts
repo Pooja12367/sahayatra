@@ -18,7 +18,10 @@ import { TrackingGateway } from '../gateway/tracking.gateway';
 import { FindAmbulancesQueryDto } from './dto/find-ambulances-query.dto';
 import type { UserDocument } from '../users/entities/user.entity';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
-import { getNepalPhoneVariants } from '../users/phone.util';
+import {
+  getNepalPhoneVariants,
+  normalizeNepalPhone,
+} from '../users/phone.util';
 import {
   EmergencyRequest,
   EmergencyRequestDocument,
@@ -89,6 +92,9 @@ export class AmbulanceService implements OnModuleInit {
   async create(createAmbulanceDto: CreateAmbulanceDto) {
     const { coordinates, ...rest } = createAmbulanceDto;
     this.assertValidCoordinates(coordinates);
+    const driver = await this.validateDriverAssignment(
+      createAmbulanceDto.driverId,
+    );
 
     if (
       await this.ambulanceModel.findOne({
@@ -99,6 +105,13 @@ export class AmbulanceService implements OnModuleInit {
     }
     const created = await this.ambulanceModel.create({
       ...rest,
+      ...(driver
+        ? {
+            driverId: driver._id,
+            driverName: driver.fullName,
+            phone: driver.phone,
+          }
+        : {}),
       currentLocation: {
         type: 'Point',
         coordinates,
@@ -181,7 +194,7 @@ export class AmbulanceService implements OnModuleInit {
   }
 
   async update(id: string, dto: UpdateAmbulanceDto) {
-    const { coordinates, ...fields } = dto;
+    const { coordinates, driverId, ...fields } = dto;
     const ambulance = await this.ambulanceModel.findById(id);
 
     if (!ambulance) {
@@ -191,6 +204,18 @@ export class AmbulanceService implements OnModuleInit {
     for (const [field, value] of Object.entries(fields)) {
       if (value !== undefined) {
         ambulance.set(field, value);
+      }
+    }
+
+    if (driverId !== undefined) {
+      const driver = await this.validateDriverAssignment(
+        driverId,
+        ambulance._id as Types.ObjectId,
+      );
+      if (driver) {
+        ambulance.driverId = driver._id;
+        ambulance.driverName = driver.fullName;
+        ambulance.phone = driver.phone;
       }
     }
 
@@ -305,19 +330,6 @@ export class AmbulanceService implements OnModuleInit {
     return updated;
   }
 
-  /**
-   * Force-sets ambulance status without checking allowed transitions.
-   * Used internally (e.g., on driver disconnect) to safely mark as OFFLINE.
-   */
-  async updateStatusDirectly(
-    ambulanceId: string,
-    status: AmbulanceStatus,
-  ): Promise<void> {
-    await this.ambulanceModel.findByIdAndUpdate(ambulanceId, {
-      $set: { status },
-    });
-  }
-
   async remove(id: string) {
     const deleted = await this.ambulanceModel.findByIdAndDelete(id);
 
@@ -378,10 +390,31 @@ export class AmbulanceService implements OnModuleInit {
       return assignedAmbulance;
     }
 
+    const byDriverId = await this.ambulanceModel
+      .find({
+        driverId: user._id,
+        isActive: true,
+      })
+      .limit(2)
+      .exec();
+
+    if (byDriverId.length > 1) {
+      throw new ConflictException(
+        'Driver is linked to multiple active ambulances',
+      );
+    }
+
+    if (byDriverId.length === 1) {
+      return byDriverId[0];
+    }
+
+    const ambulanceFilter = {
+      phone: { $in: getNepalPhoneVariants(user.phone) },
+      isActive: true,
+    };
     const ambulances = await this.ambulanceModel
       .find({
-        phone: { $in: getNepalPhoneVariants(user.phone) },
-        isActive: true,
+        ...ambulanceFilter,
         status: { $ne: AmbulanceStatus.COMPLETED },
       })
       .limit(2)
@@ -393,11 +426,29 @@ export class AmbulanceService implements OnModuleInit {
       );
     }
 
-    if (ambulances.length === 0) {
+    if (ambulances.length === 1) {
+      return ambulances[0];
+    }
+
+    const completedAmbulances = await this.ambulanceModel
+      .find({
+        ...ambulanceFilter,
+        status: AmbulanceStatus.COMPLETED,
+      })
+      .limit(2)
+      .exec();
+
+    if (completedAmbulances.length > 1) {
+      throw new ConflictException(
+        'Driver phone is linked to multiple completed ambulances',
+      );
+    }
+
+    if (completedAmbulances.length === 0) {
       throw new NotFoundException('Driver ambulance not found');
     }
 
-    return ambulances[0];
+    return completedAmbulances[0];
   }
 
   private async assertDriverCanAccessAmbulance(
@@ -413,5 +464,47 @@ export class AmbulanceService implements OnModuleInit {
     if (ambulance._id.toString() !== ambulanceId) {
       throw new NotFoundException('Ambulance not found');
     }
+  }
+
+  private async validateDriverAssignment(
+    driverId?: string | null,
+    currentAmbulanceId?: Types.ObjectId,
+  ) {
+    if (!driverId) {
+      return null;
+    }
+
+    if (!Types.ObjectId.isValid(driverId)) {
+      throw new BadRequestException('Invalid driver id');
+    }
+
+    const driver = await this.roleProfilesService.getVerifiedDriverUser(
+      driverId,
+    );
+    const normalizedPhone = normalizeNepalPhone(driver.phone);
+    if (!normalizedPhone) {
+      throw new BadRequestException(
+        'Verified driver account has an invalid phone number',
+      );
+    }
+    const objectId = driver._id as Types.ObjectId;
+
+    const filter: Record<string, unknown> = { driverId: objectId };
+    if (currentAmbulanceId) {
+      filter._id = { $ne: currentAmbulanceId };
+    }
+
+    const existing = await this.ambulanceModel.findOne(filter).exec();
+    if (existing) {
+      throw new ConflictException(
+        'Driver is already linked to another ambulance',
+      );
+    }
+
+    return {
+      _id: objectId,
+      fullName: driver.fullName,
+      phone: normalizedPhone.slice(4),
+    };
   }
 }

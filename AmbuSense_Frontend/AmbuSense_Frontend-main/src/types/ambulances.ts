@@ -21,6 +21,7 @@ export type AmbulanceLocation = {
 export type Ambulance = {
   _id?: string;
   id?: string;
+  driverId?: Nullable<string>;
   ambulanceCode: string;
   driverName: string;
   phone: string;
@@ -57,9 +58,10 @@ export type PaginatedAmbulancesResponse = {
 };
 
 export type AmbulanceFormPayload = {
+  driverId?: string;
   ambulanceCode: string;
-  driverName: string;
-  phone: string;
+  driverName?: string;
+  phone?: string;
   status?: AmbulanceStatus;
   coordinates: [number, number];
   locationName: string;
@@ -69,6 +71,11 @@ export type AmbulanceFormPayload = {
 export type UpdateAmbulancePayload = Partial<
   Pick<
     AmbulanceFormPayload,
-    "ambulanceCode" | "driverName" | "phone" | "coordinates" | "locationName"
+    | "ambulanceCode"
+    | "driverId"
+    | "driverName"
+    | "phone"
+    | "coordinates"
+    | "locationName"
   >
 >;

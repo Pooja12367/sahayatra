@@ -211,7 +211,11 @@ export class RoutesService {
       const ambulance = await this.findAmbulance(
         request.assignedAmbulance.toString(),
       );
-      if (!areNepalPhoneNumbersEqual(ambulance.phone, user.phone)) {
+      if (
+        ambulance.driverId
+          ? ambulance.driverId.toString() !== user._id.toString()
+          : !areNepalPhoneNumbersEqual(ambulance.phone, user.phone)
+      ) {
         throw new NotFoundException('Emergency request not found');
       }
     }

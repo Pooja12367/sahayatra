@@ -41,6 +41,19 @@ describe('SignupDto validation', () => {
     expect(dto.email).toBe('sita@gmail.com');
   });
 
+  it('normalizes international access-prefix phone numbers before signup', async () => {
+    const dto = plainToInstance(SignupDto, {
+      fullName: 'Sita Tamang',
+      email: 'sita@example.com',
+      phone: '009779841234567',
+      password: 'Sita123!',
+      role: UserRole.PATIENT,
+    });
+
+    expect(await validate(dto)).toHaveLength(0);
+    expect(dto.phone).toBe('+9779841234567');
+  });
+
   it('rejects invalid role and poor password quality', async () => {
     const dto = new SignupDto();
     dto.fullName = 'Sita Tamang';

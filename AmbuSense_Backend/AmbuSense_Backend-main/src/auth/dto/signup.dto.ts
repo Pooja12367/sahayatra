@@ -10,42 +10,14 @@ import {
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { UserRole } from '../../constants/enums';
+import { normalizeNepalPhone } from '../../users/phone.util';
 
 function normalizeEmail(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
 function normalizePhone(value: unknown): string {
-  if (typeof value !== 'string') {
-    return '';
-  }
-
-  const compact = value.trim().replace(/[\s-]+/g, '');
-  if (!compact) {
-    return '';
-  }
-
-  let digits = compact.replace(/\D/g, '');
-
-  if (compact.startsWith('+977')) {
-    digits = compact.slice(4).replace(/\D/g, '');
-  } else if (compact.startsWith('977')) {
-    digits = compact.slice(3).replace(/\D/g, '');
-  }
-
-  if (digits.startsWith('0')) {
-    digits = digits.slice(1);
-  }
-
-  if (!/^9\d{9}$/.test(digits)) {
-    return '';
-  }
-
-  if (/^(\d)\1{9}$/.test(digits)) {
-    return '';
-  }
-
-  return `+977${digits}`;
+  return typeof value === 'string' ? normalizeNepalPhone(value) ?? '' : '';
 }
 
 export class SignupDto {

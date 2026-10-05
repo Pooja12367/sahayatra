@@ -25,7 +25,11 @@ import { DriversModule } from './drivers/drivers.module';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         uri: configService.get<string>('MONGODB_URI'),
-        dbName: configService.get<string>('MONGODB_DB_NAME'),
+        dbName: configService.get<string>('MONGODB_DB_NAME')?.trim(),
+        connectionFactory: (connection) => {
+          console.info(`[database] Connected database: ${connection.name}`);
+          return connection;
+        },
       }),
     }),
     AmbulanceModule,

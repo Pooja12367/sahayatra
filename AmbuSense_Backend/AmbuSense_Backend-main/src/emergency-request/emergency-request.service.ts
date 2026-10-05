@@ -155,6 +155,7 @@ export class EmergencyRequestService implements OnModuleInit {
     currentUser?: UserDocument,
   ) {
     const filter: Record<string, unknown> = {};
+    const accessFilters: Record<string, unknown>[] = [];
 
     if (query.status) {
       filter.status = query.status;
@@ -166,7 +167,21 @@ export class EmergencyRequestService implements OnModuleInit {
 
     if (currentUser?.role === UserRole.DRIVER) {
       await this.assertDriverVerified(currentUser);
-      filter.assignedDriverId = currentUser._id;
+      const ownership: Record<string, unknown>[] = [
+        { assignedDriverId: currentUser._id },
+      ];
+      try {
+        const ambulance = await this.findDriverAmbulance(currentUser);
+        ownership.push({
+          assignedDriverId: null,
+          assignedAmbulance: ambulance._id,
+        });
+      } catch (error) {
+        if (!(error instanceof NotFoundException)) {
+          throw error;
+        }
+      }
+      accessFilters.push({ $or: ownership });
     }
 
     if (query.assignedHospital) {
@@ -179,12 +194,20 @@ export class EmergencyRequestService implements OnModuleInit {
 
     if (query.search) {
       const regex = new RegExp(this.escapeRegex(query.search), 'i');
-      filter.$or = [
+      accessFilters.push({
+        $or: [
         { patientName: regex },
         { patientPhone: regex },
         { notes: regex },
         { cancellationReason: regex },
-      ];
+        ],
+      });
+    }
+
+    if (accessFilters.length === 1) {
+      Object.assign(filter, accessFilters[0]);
+    } else if (accessFilters.length > 1) {
+      filter.$and = accessFilters;
     }
 
     return this.emergencyRequestModel
@@ -613,7 +636,16 @@ export class EmergencyRequestService implements OnModuleInit {
       return assignedTrips;
     }
 
-    const ambulance = await this.findDriverAmbulance(user);
+    let ambulance: AmbulanceDocument;
+    try {
+      ambulance = await this.findDriverAmbulance(user);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        return [];
+      }
+      throw error;
+    }
+
     const legacyTrips = await this.emergencyRequestModel
       .find({
         assignedAmbulance: ambulance._id,
@@ -719,6 +751,42 @@ export class EmergencyRequestService implements OnModuleInit {
   private async findDriverAmbulance(
     user: UserDocument,
   ): Promise<AmbulanceDocument> {
+    const byDriverId = await this.ambulanceModel
+      .find({
+        driverId: user._id,
+        isActive: true,
+      })
+      .limit(2)
+      .exec();
+
+    if (byDriverId.length > 1) {
+      throw new ConflictException(
+        'Driver is linked to multiple active ambulances',
+      );
+    }
+
+    if (byDriverId.length === 1) {
+      return byDriverId[0];
+    }
+
+    const assigned = await this.ambulanceModel
+      .find({
+        driverId: user._id,
+        isActive: true,
+      })
+      .limit(2)
+      .exec();
+
+    if (assigned.length > 1) {
+      throw new ConflictException(
+        'Driver is linked to multiple active ambulances',
+      );
+    }
+
+    if (assigned.length === 1) {
+      return assigned[0];
+    }
+
     const ambulances = await this.ambulanceModel
       .find({
         phone: { $in: getNepalPhoneVariants(user.phone) },
@@ -844,6 +912,12 @@ export class EmergencyRequestService implements OnModuleInit {
   }
 
   private async findDriverIdForAmbulance(ambulance: AmbulanceDocument) {
+    if (ambulance.driverId) {
+      const driverId = ambulance.driverId as Types.ObjectId;
+      await this.roleProfilesService.assertDriverVerified(driverId);
+      return driverId;
+    }
+
     const drivers = await this.userModel
       .find({
         phone: { $in: getNepalPhoneVariants(ambulance.phone) },
@@ -859,6 +933,9 @@ export class EmergencyRequestService implements OnModuleInit {
       );
     }
 
+    await this.roleProfilesService.assertDriverVerified(
+      drivers[0]._id as Types.ObjectId,
+    );
     return drivers[0]._id as Types.ObjectId;
   }
 

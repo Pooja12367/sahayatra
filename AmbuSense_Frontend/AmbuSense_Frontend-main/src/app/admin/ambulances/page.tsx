@@ -2,6 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
+import axios from "axios";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Ambulance as AmbulanceIcon,
   CheckCircle2,
@@ -58,8 +60,14 @@ import {
   useUpdateAmbulance,
   useUpdateAmbulanceStatus,
 } from "@/hooks/use-ambulances";
+import { useAllVerifiedDrivers } from "@/hooks/use-drivers";
 import { getFriendlyApiErrorMessage } from "@/lib/api";
-import { isValidCoordinates, PHONE_REGEX } from "@/lib/location-validation";
+import {
+  acquireSocketConnection,
+  releaseSocketConnection,
+  socket,
+} from "@/lib/socket";
+import { isValidCoordinates } from "@/lib/location-validation";
 import { lookupLocationName } from "@/lib/location-geocoding";
 import {
   ambulanceStatuses,
@@ -67,14 +75,14 @@ import {
   type AmbulanceFilters,
   type AmbulanceStatus,
 } from "@/types/ambulances";
+import type { AdminDriver } from "@/types/drivers";
 
 type DialogMode = "view" | "create" | "edit" | "delete";
 type Coordinates = [number, number];
 
 type AmbulanceFormState = {
+  driverId: string;
   ambulanceCode: string;
-  driverName: string;
-  phone: string;
   status: AmbulanceStatus;
   longitude: string;
   latitude: string;
@@ -83,9 +91,8 @@ type AmbulanceFormState = {
 };
 
 const emptyForm: AmbulanceFormState = {
+  driverId: "",
   ambulanceCode: "",
-  driverName: "",
-  phone: "",
   status: "offline",
   longitude: "",
   latitude: "",
@@ -132,6 +139,65 @@ function formatStatus(value: string) {
     .join(" ");
 }
 
+function getDriverAvailability(driver: AdminDriver) {
+  const status = driver.assignedAmbulance?.status;
+
+  if (status === "available") {
+    return "Online";
+  }
+  if (status === "offline") {
+    return "Offline";
+  }
+  if (
+    status === "assigned" ||
+    status === "en-route" ||
+    status === "at-patient" ||
+    status === "transporting" ||
+    status === "at-hospital"
+  ) {
+    return "On trip";
+  }
+  if (status === "completed") {
+    return "Trip complete";
+  }
+  return "No ambulance";
+}
+
+function getDriverAvailabilityOrder(driver: AdminDriver) {
+  switch (getDriverAvailability(driver)) {
+    case "Online":
+      return 0;
+    case "Offline":
+      return 1;
+    case "On trip":
+      return 2;
+    case "Trip complete":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+function getAmbulanceSubmitError(error: unknown) {
+  if (axios.isAxiosError(error)) {
+    const responseData = error.response?.data as
+      | { message?: unknown; error?: unknown }
+      | undefined;
+    const message = responseData?.message ?? responseData?.error;
+    if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+    if (
+      Array.isArray(message) &&
+      message.every((item): item is string => typeof item === "string")
+    ) {
+      return message.join("; ");
+    }
+  }
+
+  return getFriendlyApiErrorMessage(error);
+}
+
 function formatLocation(ambulance: Ambulance) {
   const coordinates = ambulance.currentLocation?.coordinates;
   return (
@@ -149,9 +215,8 @@ function getFormFromAmbulance(ambulance: Ambulance): AmbulanceFormState {
   const coordinates = ambulance.currentLocation?.coordinates;
 
   return {
+    driverId: ambulance.driverId ?? "",
     ambulanceCode: ambulance.ambulanceCode,
-    driverName: ambulance.driverName,
-    phone: ambulance.phone,
     status: ambulance.status,
     longitude: coordinates ? String(coordinates[0]) : "",
     latitude: coordinates ? String(coordinates[1]) : "",
@@ -168,22 +233,13 @@ function parseForm(form: AmbulanceFormState) {
     throw new Error("Ambulance code is required");
   }
 
-  if (!form.driverName.trim()) {
-    throw new Error("Driver name is required");
-  }
-
-  if (!PHONE_REGEX.test(form.phone)) {
-    throw new Error("Phone number must be exactly 10 digits");
-  }
-
   if (!isValidCoordinates([longitude, latitude])) {
     throw new Error("Please select a valid location");
   }
 
   return {
+    ...(form.driverId ? { driverId: form.driverId } : {}),
     ambulanceCode: form.ambulanceCode.trim(),
-    driverName: form.driverName.trim(),
-    phone: form.phone.trim(),
     status: form.status,
     coordinates: [longitude, latitude] as [number, number],
     locationName: form.address.trim(),
@@ -192,6 +248,7 @@ function parseForm(form: AmbulanceFormState) {
 }
 
 export default function AdminAmbulancesPage() {
+  const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const initialStatus = searchParams.get("status");
   const initialActive = searchParams.get("active");
@@ -231,6 +288,7 @@ export default function AdminAmbulancesPage() {
   );
 
   const ambulancesQuery = useAmbulances(filters);
+  const driversQuery = useAllVerifiedDrivers();
   const createAmbulance = useCreateAmbulance();
   const updateAmbulance = useUpdateAmbulance();
   const updateStatus = useUpdateAmbulanceStatus();
@@ -246,6 +304,23 @@ export default function AdminAmbulancesPage() {
     updateAmbulance.isPending ||
     updateStatus.isPending ||
     deleteAmbulance.isPending;
+
+  useEffect(() => {
+    const token = acquireSocketConnection();
+    const refreshAmbulanceData = () => {
+      void queryClient.invalidateQueries({ queryKey: ["ambulances"] });
+      void queryClient.invalidateQueries({ queryKey: ["drivers"] });
+    };
+
+    socket.on("ambulance.updated", refreshAmbulanceData);
+    socket.on("ambulance.status.updated", refreshAmbulanceData);
+
+    return () => {
+      socket.off("ambulance.updated", refreshAmbulanceData);
+      socket.off("ambulance.status.updated", refreshAmbulanceData);
+      releaseSocketConnection(token);
+    };
+  }, [queryClient]);
 
   useEffect(() => {
     setPage(1);
@@ -301,11 +376,24 @@ export default function AdminAmbulancesPage() {
       const requestPayload = { ...payload, locationName };
 
       if (dialogMode === "create") {
-        console.log("CREATE AMBULANCE PAYLOAD:", {
-          coordinates: payload.coordinates,
-          locationName,
-        });
         const createdAmbulance = await createAmbulance.mutateAsync(requestPayload);
+        if (!getAmbulanceId(createdAmbulance)) {
+          throw new Error("The server did not return the saved ambulance ID.");
+        }
+        if (
+          (payload.driverId &&
+            createdAmbulance.driverId !== payload.driverId) ||
+          (!payload.driverId && createdAmbulance.driverId)
+        ) {
+          throw new Error(
+            "The server did not save the selected driver assignment.",
+          );
+        }
+        if (createdAmbulance.status !== payload.status) {
+          throw new Error(
+            "The server did not save the selected ambulance status.",
+          );
+        }
         const savedCoordinates = createdAmbulance.currentLocation?.coordinates;
         if (
           !savedCoordinates ||
@@ -323,16 +411,10 @@ export default function AdminAmbulancesPage() {
       if (dialogMode === "edit" && selectedAmbulance) {
         const editPayload = {
           ambulanceCode: payload.ambulanceCode,
-          driverName: payload.driverName,
-          phone: payload.phone,
+          driverId: payload.driverId,
           coordinates: payload.coordinates,
           locationName,
         };
-        console.log("EDIT AMBULANCE PAYLOAD:", {
-          ambulanceId: getAmbulanceId(selectedAmbulance),
-          coordinates: editPayload.coordinates,
-        });
-
         const updatedAmbulance = await updateAmbulance.mutateAsync({
           ambulanceId: getAmbulanceId(selectedAmbulance),
           payload: editPayload,
@@ -362,7 +444,7 @@ export default function AdminAmbulancesPage() {
 
       closeDialog();
     } catch (error) {
-      toast.error(getFriendlyApiErrorMessage(error));
+      toast.error(getAmbulanceSubmitError(error));
     }
   }
 
@@ -730,6 +812,13 @@ export default function AdminAmbulancesPage() {
 
       <AmbulanceDialog
         ambulance={selectedAmbulance}
+        drivers={driversQuery.data ?? []}
+        driversLoadError={
+          driversQuery.isError
+            ? "Could not load verified driver accounts."
+            : undefined
+        }
+        driversLoading={driversQuery.isLoading}
         form={form}
         isMutating={isMutating}
         mode={dialogMode}
@@ -744,6 +833,9 @@ export default function AdminAmbulancesPage() {
 
 function AmbulanceDialog({
   ambulance,
+  drivers,
+  driversLoadError,
+  driversLoading,
   form,
   isMutating,
   mode,
@@ -753,6 +845,9 @@ function AmbulanceDialog({
   onSubmit,
 }: {
   ambulance: Ambulance | null;
+  drivers: AdminDriver[];
+  driversLoadError?: string;
+  driversLoading: boolean;
   form: AmbulanceFormState;
   isMutating: boolean;
   mode: DialogMode | null;
@@ -777,16 +872,11 @@ function AmbulanceDialog({
     form.longitude.trim() && form.latitude.trim()
       ? ([Number(form.longitude), Number(form.latitude)] as Coordinates)
       : null;
-  const phoneError = !PHONE_REGEX.test(form.phone)
-    ? "Phone number must be exactly 10 digits"
-    : null;
   const locationError = !isValidCoordinates(locationCoordinates)
     ? "Please select a valid location"
     : null;
   const formIsValid = Boolean(
     form.ambulanceCode.trim() &&
-      form.driverName.trim() &&
-      !phoneError &&
       !locationError,
   );
 
@@ -845,31 +935,56 @@ function AmbulanceDialog({
                   </p>
                 ) : null}
               </Field>
-              <Field label="Driver Name">
-                <Input
-                  onChange={(event) =>
-                    onFormChange({ ...form, driverName: event.target.value })
-                  }
-                  value={form.driverName}
-                />
-                {!form.driverName.trim() ? (
-                  <p className="text-sm text-red-600">Driver name is required</p>
+              <Field label="Verified driver account">
+                <select
+                  className="h-8 w-full rounded-lg border bg-background px-3 text-sm"
+                  onChange={(event) => {
+                    const driverId = event.target.value;
+                    onFormChange({
+                      ...form,
+                      driverId,
+                    });
+                  }}
+                  value={form.driverId}
+                >
+                  <option disabled={Boolean(ambulance?.driverId)} value="">
+                    {driversLoading
+                      ? "Loading verified drivers..."
+                      : "No linked driver"}
+                  </option>
+                  {[...drivers]
+                    .sort(
+                      (first, second) =>
+                        getDriverAvailabilityOrder(first) -
+                          getDriverAvailabilityOrder(second) ||
+                        first.user.fullName.localeCompare(
+                          second.user.fullName,
+                        ),
+                    )
+                    .map((driver) => {
+                      const alreadyAssigned =
+                        Boolean(driver.assignedAmbulance) &&
+                        driver.user.id !== form.driverId;
+
+                      return (
+                        <option
+                          disabled={alreadyAssigned}
+                          key={driver.user.id}
+                          value={driver.user.id}
+                        >
+                          {driver.user.fullName} ({driver.user.phone}) —{" "}
+                          {getDriverAvailability(driver)}
+                          {alreadyAssigned ? " — Already assigned" : ""}
+                        </option>
+                      );
+                    })}
+                </select>
+                {driversLoadError ? (
+                  <p className="text-sm text-red-600">{driversLoadError}</p>
                 ) : null}
-              </Field>
-              <Field label="Phone">
-                <Input
-                  inputMode="numeric"
-                  maxLength={10}
-                  onChange={(event) =>
-                    /^[0-9]{0,10}$/.test(event.target.value) &&
-                    onFormChange({ ...form, phone: event.target.value })
-                  }
-                  type="tel"
-                  value={form.phone}
-                />
-                {phoneError ? (
-                  <p className="text-sm text-red-600">{phoneError}</p>
-                ) : null}
+                <p className="text-xs text-muted-foreground">
+                  Linking a verified account saves its user ID on the ambulance.
+                </p>
               </Field>
               <Field label="Status">
                 <select

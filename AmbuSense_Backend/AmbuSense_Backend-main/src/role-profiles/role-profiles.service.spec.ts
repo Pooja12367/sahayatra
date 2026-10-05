@@ -1,4 +1,4 @@
-import type { Model } from 'mongoose';
+import { Types, type Model } from 'mongoose';
 import { UserRole } from '../constants/enums';
 import { UsersService } from '../users/users.service';
 import { Ambulance, AmbulanceDocument } from '../ambulance/entities/ambulance.entity';
@@ -7,6 +7,42 @@ import { Admin, AdminDocument } from './entities/admin.entity';
 import { Dispatcher, DispatcherDocument } from './entities/dispatcher.entity';
 import { Patient, PatientDocument } from './entities/patient.entity';
 import { RoleProfilesService } from './role-profiles.service';
+
+describe('RoleProfilesService.createForRole', () => {
+  it('creates a profile for a new user when none exists', async () => {
+    const userId = new Types.ObjectId();
+    const profile = {
+      _id: new Types.ObjectId(),
+      user: userId,
+    };
+    const patientModel = {
+      findOne: jest.fn().mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      }),
+      findOneAndUpdate: jest.fn().mockReturnValue({
+        exec: jest.fn().mockResolvedValue(profile),
+      }),
+    } as unknown as Model<PatientDocument>;
+    const service = new RoleProfilesService(
+      {} as Model<AdminDocument>,
+      {} as Model<DispatcherDocument>,
+      class DriverModel {} as unknown as Model<DriverDocument>,
+      patientModel,
+      {} as Model<AmbulanceDocument>,
+      {} as UsersService,
+    );
+
+    await expect(service.createForRole(UserRole.PATIENT, userId)).resolves.toEqual({
+      id: profile._id.toString(),
+      user: userId.toString(),
+    });
+    expect(patientModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { user: userId },
+      { $setOnInsert: { user: userId } },
+      { upsert: true, new: true, runValidators: true },
+    );
+  });
+});
 
 describe('RoleProfilesService.findDrivers', () => {
   it('skips driver profiles whose populated user record is missing', async () => {

@@ -24,6 +24,28 @@ export function useDrivers(filters: DriverFilters = {}) {
   });
 }
 
+export function useAllVerifiedDrivers() {
+  return useQuery({
+    queryKey: [...driverKeys.all, "verified"],
+    queryFn: async () => {
+      const drivers: AdminDriver[] = [];
+      let page = 1;
+      let totalPages = 1;
+
+      do {
+        const { data } = await api.get<PaginatedDriversResponse>("/drivers", {
+          params: { isVerified: true, page, limit: 100 },
+        });
+        drivers.push(...data.data);
+        totalPages = data.meta.totalPages;
+        page += 1;
+      } while (page <= totalPages);
+
+      return drivers;
+    },
+  });
+}
+
 export function useVerifyDriver() {
   const queryClient = useQueryClient();
 

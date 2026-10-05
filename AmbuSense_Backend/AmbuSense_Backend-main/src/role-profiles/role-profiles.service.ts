@@ -43,7 +43,50 @@ export class RoleProfilesService {
 
   async createForRole(role: UserRole, user: Types.ObjectId) {
     const model = this.getModel(role);
-    const profile = await model.create({ user });
+
+    let profile: ProfileDocument | null;
+    try {
+      const existingProfile = await model.findOne({ user }).exec();
+      if (existingProfile) {
+        return this.sanitize(existingProfile);
+      }
+
+      profile = await model
+        .findOneAndUpdate(
+          { user },
+          { $setOnInsert: { user } },
+          { upsert: true, new: true, runValidators: true },
+        )
+        .exec();
+    } catch (error) {
+      const details =
+        typeof error === 'object' && error !== null
+          ? (error as { code?: unknown; keyPattern?: unknown })
+          : {};
+      const fields =
+        typeof details.keyPattern === 'object' && details.keyPattern !== null
+          ? Object.keys(details.keyPattern)
+          : [];
+      console.error('[database] Role profile write failed', {
+        collection: model.collection.name,
+        code: details.code,
+        fields,
+      });
+
+      if (details.code === 11000) {
+        const racedProfile = await model.findOne({ user }).exec();
+        if (racedProfile) {
+          return this.sanitize(racedProfile);
+        }
+      }
+
+      throw error;
+    }
+
+    if (!profile) {
+      throw new NotFoundException('Role profile not found after creation');
+    }
+
     return this.sanitize(profile);
   }
 
@@ -80,6 +123,10 @@ export class RoleProfilesService {
       return Boolean(user && typeof user === 'object');
     });
 
+    const userIds = profilesWithUsers.map((profile) => {
+      const user = profile.user as unknown as { _id: Types.ObjectId };
+      return user._id;
+    });
     const phones = profilesWithUsers
       .map((profile) => {
         const user = profile.user as unknown as { phone?: string };
@@ -88,28 +135,50 @@ export class RoleProfilesService {
       .flat();
 
     const ambulances = await this.ambulanceModel
-      .find({ phone: { $in: phones } })
+      .find({
+        $or: [
+          { driverId: { $in: userIds } },
+          { phone: { $in: phones } },
+        ],
+      })
       .sort({ updatedAt: -1, createdAt: -1 })
       .exec();
 
+    const ambulanceByDriverId = new Map<string, AmbulanceDocument>();
     const ambulanceByPhone = new Map<string, AmbulanceDocument>();
+    for (const ambulance of ambulances) {
+      if (ambulance.driverId) {
+        ambulanceByDriverId.set(
+          ambulance.driverId.toString(),
+          ambulance,
+        );
+      }
+    }
+
     profilesWithUsers.forEach((profile) => {
-      const user = profile.user as unknown as { phone?: string };
-      if (!user.phone) return;
+      const user = profile.user as unknown as {
+        _id: Types.ObjectId;
+        phone?: string;
+      };
+      if (ambulanceByDriverId.has(user._id.toString()) || !user.phone) return;
 
       const phoneVariants = getNepalPhoneVariants(user.phone);
       const ambulance = ambulances.find((item) =>
-        phoneVariants.includes(item.phone),
+        !item.driverId && phoneVariants.includes(item.phone),
       );
       if (ambulance) ambulanceByPhone.set(user.phone, ambulance);
     });
 
     return {
       data: profilesWithUsers.map((profile) => {
-        const user = profile.user as unknown as { phone?: string };
+        const user = profile.user as unknown as {
+          _id: Types.ObjectId;
+          phone?: string;
+        };
         return this.sanitizeDriverForAdmin(
           profile,
-          user.phone ? ambulanceByPhone.get(user.phone) : null,
+          ambulanceByDriverId.get(user._id.toString()) ??
+            (user.phone ? ambulanceByPhone.get(user.phone) : null),
         );
       }),
       meta: {
@@ -131,6 +200,16 @@ export class RoleProfilesService {
     if (!profile.isVerified) {
       throw new ForbiddenException('Driver verification is required');
     }
+  }
+
+  async getVerifiedDriverUser(userId: string | Types.ObjectId) {
+    const user = await this.usersService.findById(userId);
+    if (!user || user.role !== UserRole.DRIVER) {
+      throw new NotFoundException('Driver account not found');
+    }
+
+    await this.assertDriverVerified(user._id as Types.ObjectId);
+    return user;
   }
 
   async attachDriverDocument(

@@ -9,18 +9,16 @@ export const driverAmbulanceKeys = {
   myAmbulance: ["driver", "my-ambulance"] as const,
 };
 
-export function useDriverAmbulance() {
+export function useDriverAmbulance(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: driverAmbulanceKeys.myAmbulance,
     queryFn: async () => {
       try {
         const { data } = await api.get<Ambulance>("/ambulances/my-ambulance");
         return data;
       } catch (error) {
-        if (
-          axios.isAxiosError(error) &&
-          error.response?.status === 404
-        ) {
+        if (axios.isAxiosError(error) && error.response?.status === 404) {
           return null;
         }
         throw error;
@@ -48,8 +46,14 @@ export function useUpdateAmbulanceStatus() {
       );
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: driverAmbulanceKeys.myAmbulance });
+    onSuccess: async (savedAmbulance) => {
+      queryClient.setQueryData(
+        driverAmbulanceKeys.myAmbulance,
+        savedAmbulance,
+      );
+      queryClient.invalidateQueries({
+        queryKey: driverAmbulanceKeys.myAmbulance,
+      });
     },
   });
 }

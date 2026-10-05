@@ -381,6 +381,10 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     }
 
     const duplicateField = Object.keys(error.keyPattern ?? {})[0];
+    console.error('[database] Duplicate key during signup', {
+      collection: 'users',
+      field: duplicateField ?? 'unknown',
+    });
 
     if (duplicateField === 'email') {
       throw new ConflictException('An account with this email already exists.');
@@ -411,7 +415,9 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const databaseName = this.configService.get<string>('MONGODB_DB_NAME');
+    const databaseName = this.configService
+      .get<string>('MONGODB_DB_NAME')
+      ?.trim();
     const db = this.mongoClient.db(databaseName);
     const userId = ObjectId.isValid(authUserId)
       ? new ObjectId(authUserId)

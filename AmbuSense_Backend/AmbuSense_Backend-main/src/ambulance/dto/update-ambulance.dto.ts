@@ -4,6 +4,7 @@ import {
   IsArray,
   IsEnum,
   IsNumber,
+  IsMongoId,
   IsOptional,
   IsString,
   Matches,
@@ -12,6 +13,11 @@ import {
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateAmbulanceDto {
+  @ApiPropertyOptional({ example: '65f1a6f2c3b7a91d2e4f5681' })
+  @IsOptional()
+  @IsMongoId()
+  driverId?: string;
+
   @ApiPropertyOptional({ example: 'AMB-102' })
   @IsOptional()
   @IsString()

@@ -55,7 +55,10 @@ import {
   releaseSocketConnection,
   socket,
 } from "@/lib/socket";
-import type { Ambulance as AmbulanceType } from "@/types/ambulances";
+import type {
+  Ambulance as AmbulanceType,
+  AmbulanceStatus,
+} from "@/types/ambulances";
 import type {
   DriverDocumentUploadResponse,
   UploadedMedia,
@@ -1003,17 +1006,22 @@ export function DriverDashboardContent({
     profile?.verificationNote,
   );
   const copy = verificationCopy(verificationState);
+  const isAuthReady = !isLoading && !isFetching && !!data?.user && !!data?.profile;
   const isVerified = verificationState === "verified";
   const hasDocument = !!profile?.documentImageId || !!uploadedMedia;
-  useDriverTripSocketInvalidation(isVerified);
-  const myTripQuery = useDriverMyTrip(isVerified);
+  useDriverTripSocketInvalidation(isVerified && isAuthReady);
+  const myTripQuery = useDriverMyTrip(
+    isAuthReady && data?.user.role === "driver" && isVerified,
+  );
   const updateTripStatus = useUpdateDriverTripStatus();
   const rejectTrip = useRejectDriverTrip();
   const activeTrips = myTripQuery.data ?? [];
   const activeTrip =
     activeTrips.find((trip) => getRequestId(trip) === selectedTripId) ??
     (activeTrips.length === 1 ? activeTrips[0] : null);
-  const driverAmbulanceQuery = useDriverAmbulance();
+  const driverAmbulanceQuery = useDriverAmbulance(
+    isAuthReady && data?.user.role === "driver" && isVerified,
+  );
   const ambulance = driverAmbulanceQuery.data;
   const updateAmbulanceStatus = useUpdateAmbulanceStatus();
   const { isTrackingActive, lastKnownLocation, trackingMessage } =
@@ -1168,92 +1176,122 @@ export function DriverDashboardContent({
           </div>
         </section>
 
-        {isVerified && ambulance?.status === "completed" && (
-          <Card className="border-blue-200 bg-blue-50/50 shadow-md backdrop-blur">
+        {isVerified && (
+          <Card className="border-blue-100 bg-white/90 shadow-md backdrop-blur">
             <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-blue-900 flex items-center gap-2">
-                  <CheckCircle2 className="size-5 text-blue-600 animate-bounce" />
-                  Trip Completed!
+                <h2 className="flex items-center gap-2 text-lg font-semibold">
+                  {ambulance?.status === "offline" ? (
+                    <WifiOff className="size-5 text-slate-500" />
+                  ) : (
+                    <RadioTower className="size-5 text-blue-600" />
+                  )}
+                  Driver availability
                 </h2>
-                <p className="text-sm text-blue-700 mt-1">
-                  Please select your availability status to continue receiving emergency assignments.
+                {!driverAmbulanceQuery.isLoading && isAuthReady && (
+                  <Badge
+                    className={
+                      ambulance?.status === "available"
+                        ? "mt-2 border-green-200 bg-green-50 text-green-700"
+                        : "mt-2 border-slate-200 bg-slate-50 text-slate-700"
+                    }
+                  >
+                    {driverAmbulanceQuery.isError
+                      ? "Status unavailable"
+                      : !ambulance
+                        ? "Ambulance not linked"
+                        : ambulance.status === "available"
+                          ? "Online"
+                          : ambulance.status === "offline" ||
+                              ambulance.status === "completed"
+                            ? "Offline"
+                            : formatStatus(ambulance.status)}
+                  </Badge>
+                )}
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {driverAmbulanceQuery.isLoading || !isAuthReady
+                    ? "Loading your linked ambulance status..."
+                    : driverAmbulanceQuery.isError
+                      ? getFriendlyApiErrorMessage(driverAmbulanceQuery.error)
+                      : !ambulance
+                        ? "No active ambulance is linked to your driver account. Contact dispatch to link one."
+                        : ambulance.status === "offline"
+                          ? "You are Offline and will not receive new assignments."
+                          : ambulance.status === "available"
+                            ? "You are Online and can receive emergency assignments."
+                            : ambulance.status === "completed"
+                              ? "Your last trip is complete. Choose whether to go Online or Offline."
+                              : `You are currently ${formatStatus(ambulance.status)}. Availability changes are unavailable during an active trip.`}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
+              {isAuthReady &&
+                !driverAmbulanceQuery.isLoading &&
+                (!ambulance || driverAmbulanceQuery.isError) && (
                 <Button
-                  className="bg-green-600 text-white hover:bg-green-700 shadow-sm"
-                  disabled={updateAmbulanceStatus.isPending}
-                  onClick={() => {
-                    updateAmbulanceStatus.mutate({
-                      ambulanceId: ambulance.id || ambulance._id || "",
-                      status: "available"
-                    }, {
-                      onSuccess: () => {
-                        toast.success("You are now Online (Available)");
-                      }
-                    });
-                  }}
-                >
-                  Stay Online
-                </Button>
-                <Button
-                  className="bg-slate-600 text-white hover:bg-slate-700 shadow-sm"
-                  disabled={updateAmbulanceStatus.isPending}
-                  onClick={() => {
-                    updateAmbulanceStatus.mutate({
-                      ambulanceId: ambulance.id || ambulance._id || "",
-                      status: "offline"
-                    }, {
-                      onSuccess: () => {
-                        toast.success("You are now Offline");
-                      }
-                    });
-                  }}
-                >
-                  Go Offline
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {isVerified && ambulance?.status === "offline" && (
-          <Card className="border-slate-200 bg-slate-50/80 shadow-md backdrop-blur">
-            <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                  <WifiOff className="size-5 text-slate-500" />
-                  Welcome back!
-                </h2>
-                <p className="text-sm text-slate-600 mt-1">
-                  Your ambulance is currently <strong>Offline</strong>. Would you like to go Online and receive emergency assignments?
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <Button
-                  className="bg-green-600 text-white hover:bg-green-700 shadow-sm"
-                  disabled={updateAmbulanceStatus.isPending}
-                  onClick={() => {
-                    updateAmbulanceStatus.mutate({
-                      ambulanceId: ambulance.id || ambulance._id || "",
-                      status: "available"
-                    }, {
-                      onSuccess: () => {
-                        toast.success("You are now Online and ready to receive assignments.");
-                      }
-                    });
-                  }}
+                  className="bg-green-600 text-white hover:bg-green-700"
+                  disabled
+                  title="Dispatch must link an active ambulance before you can go online."
                 >
                   Go Online
                 </Button>
-                <Button
-                  variant="outline"
-                  disabled={updateAmbulanceStatus.isPending}
-                >
-                  Stay Offline
-                </Button>
-              </div>
+                )}
+              {ambulance &&
+                (ambulance.status === "offline" ||
+                  ambulance.status === "available" ||
+                  ambulance.status === "completed") && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    {ambulance.status !== "available" && (
+                      <Button
+                        className="bg-green-600 text-white hover:bg-green-700"
+                        disabled={updateAmbulanceStatus.isPending}
+                        onClick={async () => {
+                          const ambulanceId = getAmbulanceId(ambulance);
+                          if (!ambulanceId) {
+                            toast.error("Ambulance ID is missing");
+                            return;
+                          }
+                          try {
+                            await updateAmbulanceStatus.mutateAsync({
+                              ambulanceId,
+                              status: "available" satisfies AmbulanceStatus,
+                            });
+                            toast.success(
+                              "You are Online and ready for assignments.",
+                            );
+                          } catch (error) {
+                            toast.error(getFriendlyApiErrorMessage(error));
+                          }
+                        }}
+                      >
+                        Go Online
+                      </Button>
+                    )}
+                    {ambulance.status !== "offline" && (
+                      <Button
+                        variant="outline"
+                        disabled={updateAmbulanceStatus.isPending}
+                        onClick={async () => {
+                          const ambulanceId = getAmbulanceId(ambulance);
+                          if (!ambulanceId) {
+                            toast.error("Ambulance ID is missing");
+                            return;
+                          }
+                          try {
+                            await updateAmbulanceStatus.mutateAsync({
+                              ambulanceId,
+                              status: "offline" satisfies AmbulanceStatus,
+                            });
+                            toast.success("You are Offline.");
+                          } catch (error) {
+                            toast.error(getFriendlyApiErrorMessage(error));
+                          }
+                        }}
+                      >
+                        Go Offline
+                      </Button>
+                    )}
+                  </div>
+                )}
             </CardContent>
           </Card>
         )}
@@ -1282,334 +1320,306 @@ export function DriverDashboardContent({
         ) : null}
 
         {!showOverview ? (
-        <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="space-y-6">
-            {showVerification ? (
-              <>
-            <Card id="verification">
-              <CardHeader>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-semibold">
-                      Verification status
-                    </h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {copy.description}
-                    </p>
-                  </div>
-                  <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
-                    <StatusIcon className="size-5" />
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg border bg-muted/30 p-4">
-                    <p className="text-sm text-muted-foreground">
-                      Document type
-                    </p>
-                    <p className="mt-1 font-medium">
-                      {profile?.documentType ?? documentType}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border bg-muted/30 p-4">
-                    <p className="text-sm text-muted-foreground">
-                      Upload status
-                    </p>
-                    <p className="mt-1 font-medium">
-                      {hasDocument ? "Document uploaded" : "No document yet"}
-                    </p>
-                  </div>
-                </div>
+          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="space-y-6">
+              {showVerification ? (
+                <>
+                  <Card id="verification">
+                    <CardHeader>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h2 className="text-lg font-semibold">
+                            Verification status
+                          </h2>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {copy.description}
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
+                          <StatusIcon className="size-5" />
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-lg border bg-muted/30 p-4">
+                          <p className="text-sm text-muted-foreground">
+                            Document type
+                          </p>
+                          <p className="mt-1 font-medium">
+                            {profile?.documentType ?? documentType}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border bg-muted/30 p-4">
+                          <p className="text-sm text-muted-foreground">
+                            Upload status
+                          </p>
+                          <p className="mt-1 font-medium">
+                            {hasDocument
+                              ? "Document uploaded"
+                              : "No document yet"}
+                          </p>
+                        </div>
+                      </div>
 
-                {profile?.verificationNote ? (
-                  <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                    {profile.verificationNote}
-                  </div>
-                ) : null}
+                      {profile?.verificationNote ? (
+                        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                          {profile.verificationNote}
+                        </div>
+                      ) : null}
 
-                {!isVerified ? (
-                  <div className="flex gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                    <Lock className="mt-0.5 size-4 shrink-0" />
-                    <p>
-                      Admin verification is required before accepting trips or
-                      updating trip status.
-                    </p>
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
+                      {!isVerified ? (
+                        <div className="flex gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                          <Lock className="mt-0.5 size-4 shrink-0" />
+                          <p>
+                            Admin verification is required before accepting
+                            trips or updating trip status.
+                          </p>
+                        </div>
+                      ) : null}
+                    </CardContent>
+                  </Card>
 
-            {hasDocument ? (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-lg font-semibold">
-                        Verification document
-                      </h2>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {documentPreviewUrl
-                          ? "Preview of your latest uploaded document."
-                          : documentMedia.isLoading
-                            ? "Loading document preview..."
-                            : "Document uploaded. Preview is unavailable."}
-                      </p>
-                    </div>
-                    <FileCheck2 className="size-5 text-blue-600" />
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {documentPreviewUrl ? (
-                    <div className="overflow-hidden rounded-lg border bg-slate-50">
-                      <img
-                        alt="Uploaded driver verification document"
-                        className="max-h-80 w-full object-contain"
-                        src={documentPreviewUrl}
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-4">
-                      <FileImage className="size-5 text-muted-foreground" />
+                  {hasDocument ? (
+                    <Card>
+                      <CardHeader>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <h2 className="text-lg font-semibold">
+                              Verification document
+                            </h2>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {documentPreviewUrl
+                                ? "Preview of your latest uploaded document."
+                                : documentMedia.isLoading
+                                  ? "Loading document preview..."
+                                  : "Document uploaded. Preview is unavailable."}
+                            </p>
+                          </div>
+                          <FileCheck2 className="size-5 text-blue-600" />
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {documentPreviewUrl ? (
+                          <div className="overflow-hidden rounded-lg border bg-slate-50">
+                            <img
+                              alt="Uploaded driver verification document"
+                              className="max-h-80 w-full object-contain"
+                              src={documentPreviewUrl}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-4">
+                            <FileImage className="size-5 text-muted-foreground" />
+                            <div>
+                              <p className="text-sm font-medium">
+                                Document uploaded
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                We could not load the image URL, but your
+                                document is uploaded.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                        <Separator />
+                        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                          <div>
+                            <p className="font-medium">
+                              {profile?.documentType ?? documentType}
+                            </p>
+                            <p className="text-muted-foreground">
+                              {copy.label}
+                            </p>
+                          </div>
+                          {!isVerified ? (
+                            <Badge className="border-slate-200 bg-white text-slate-700">
+                              Replace document below
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
+                  {!isVerified ? (
+                    <Card>
+                      <CardHeader>
+                        <div className="flex items-center gap-3">
+                          <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
+                            <FileUp className="size-5" />
+                          </div>
+                          <div>
+                            <h2 className="text-lg font-semibold">
+                              {hasDocument
+                                ? "Replace verification document"
+                                : "Upload verification document"}
+                            </h2>
+                            <p className="text-sm text-muted-foreground">
+                              Upload a JPEG, PNG, or WebP image for admin
+                              review.
+                            </p>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <form className="space-y-4" onSubmit={handleUpload}>
+                          <div className="space-y-2">
+                            <Label htmlFor="documentType">Document type</Label>
+                            <select
+                              title="document-type"
+                              id="documentType"
+                              className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm shadow-xs outline-none transition focus-visible:border-blue-500 focus-visible:ring-3 focus-visible:ring-blue-500/20"
+                              value={documentType}
+                              onChange={(event) =>
+                                setDocumentType(
+                                  event.target
+                                    .value as (typeof documentTypes)[number],
+                                )
+                              }
+                            >
+                              {documentTypes.map((type) => (
+                                <option key={type} value={type}>
+                                  {type}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="file">Document image</Label>
+                            <label
+                              className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-blue-200 bg-blue-50/50 px-4 py-8 text-center transition hover:bg-blue-50"
+                              htmlFor="file"
+                            >
+                              <FileUp className="size-8 text-blue-600" />
+                              <span className="mt-3 text-sm font-medium text-slate-900">
+                                Choose a document image
+                              </span>
+                              <span className="mt-1 text-xs text-muted-foreground">
+                                JPEG, PNG, or WebP
+                              </span>
+                              {selectedFileName ? (
+                                <span className="mt-3 rounded-full bg-white px-3 py-1 text-xs font-medium text-blue-700">
+                                  {selectedFileName}
+                                </span>
+                              ) : null}
+                            </label>
+                            <Input
+                              id="file"
+                              ref={fileInputRef}
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              className="sr-only"
+                              onChange={(event) =>
+                                setSelectedFileName(
+                                  event.target.files?.[0]?.name ?? null,
+                                )
+                              }
+                            />
+                          </div>
+
+                          <Button
+                            className="h-11 bg-blue-600 text-white hover:bg-blue-700"
+                            disabled={uploadDocument.isPending || isFetching}
+                            type="submit"
+                          >
+                            {uploadDocument.isPending
+                              ? "Uploading..."
+                              : hasDocument
+                                ? "Replace document"
+                                : "Upload document"}
+                          </Button>
+                        </form>
+                      </CardContent>
+                    </Card>
+                  ) : null}
+                </>
+              ) : null}
+
+              {showTrip && isVerified ? (
+                <DriverTripPanel
+                  onTripSelect={(requestId) => {
+                    setSelectedTripId(requestId);
+                    const url = new URL(window.location.href);
+                    if (requestId) {
+                      url.searchParams.set("requestId", requestId);
+                    } else {
+                      url.searchParams.delete("requestId");
+                    }
+                    window.history.replaceState(null, "", url);
+                  }}
+                  isStatusPending={updateTripStatus.isPending}
+                  isRejectPending={rejectTrip.isPending}
+                  isTrackingActive={isTrackingActive}
+                  lastKnownLocation={lastKnownLocation}
+                  onStatusUpdate={handleTripStatusUpdate}
+                  onTripReject={handleTripReject}
+                  queryError={myTripQuery.error}
+                  queryIsError={myTripQuery.isError}
+                  queryIsLoading={myTripQuery.isLoading}
+                  selectedTripId={selectedTripId}
+                  trackingMessage={trackingMessage}
+                  trips={activeTrips}
+                  trip={activeTrip}
+                />
+              ) : null}
+
+              {showTrip && !isVerified ? (
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
+                        <Lock className="size-5" />
+                      </div>
                       <div>
-                        <p className="text-sm font-medium">
-                          Document uploaded
-                        </p>
+                        <h2 className="text-lg font-semibold">
+                          Trip controls locked
+                        </h2>
                         <p className="text-sm text-muted-foreground">
-                          We could not load the image URL, but your document is
-                          uploaded.
+                          Complete driver verification before active trip tools
+                          and live tracking become available.
                         </p>
                       </div>
                     </div>
-                  )}
-                  <Separator />
-                  <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-                    <div>
-                      <p className="font-medium">
-                        {profile?.documentType ?? documentType}
-                      </p>
-                      <p className="text-muted-foreground">{copy.label}</p>
-                    </div>
-                    {!isVerified ? (
-                      <Badge className="border-slate-200 bg-white text-slate-700">
-                        Replace document below
-                      </Badge>
-                    ) : null}
-                  </div>
-                </CardContent>
-              </Card>
-            ) : null}
-
-            {!isVerified ? (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
-                      <FileUp className="size-5" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-semibold">
-                        {hasDocument
-                          ? "Replace verification document"
-                          : "Upload verification document"}
-                      </h2>
-                      <p className="text-sm text-muted-foreground">
-                        Upload a JPEG, PNG, or WebP image for admin review.
-                      </p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <form className="space-y-4" onSubmit={handleUpload}>
-                    <div className="space-y-2">
-                      <Label htmlFor="documentType">Document type</Label>
-                      <select
-                      title="document-type"
-                        id="documentType"
-                        className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm shadow-xs outline-none transition focus-visible:border-blue-500 focus-visible:ring-3 focus-visible:ring-blue-500/20"
-                        value={documentType}
-                        onChange={(event) =>
-                          setDocumentType(
-                            event.target
-                              .value as (typeof documentTypes)[number],
-                          )
-                        }
-                      >
-                        {documentTypes.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="file">Document image</Label>
-                      <label
-                        className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-blue-200 bg-blue-50/50 px-4 py-8 text-center transition hover:bg-blue-50"
-                        htmlFor="file"
-                      >
-                        <FileUp className="size-8 text-blue-600" />
-                        <span className="mt-3 text-sm font-medium text-slate-900">
-                          Choose a document image
-                        </span>
-                        <span className="mt-1 text-xs text-muted-foreground">
-                          JPEG, PNG, or WebP
-                        </span>
-                        {selectedFileName ? (
-                          <span className="mt-3 rounded-full bg-white px-3 py-1 text-xs font-medium text-blue-700">
-                            {selectedFileName}
-                          </span>
-                        ) : null}
-                      </label>
-                      <Input
-                        id="file"
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        className="sr-only"
-                        onChange={(event) =>
-                          setSelectedFileName(
-                            event.target.files?.[0]?.name ?? null,
-                          )
-                        }
-                      />
-                    </div>
-
+                  </CardHeader>
+                  <CardContent>
                     <Button
-                      className="h-11 bg-blue-600 text-white hover:bg-blue-700"
-                      disabled={uploadDocument.isPending || isFetching}
-                      type="submit"
+                      asChild
+                      className="bg-blue-600 text-white hover:bg-blue-700"
                     >
-                      {uploadDocument.isPending
-                        ? "Uploading..."
-                        : hasDocument
-                          ? "Replace document"
-                          : "Upload document"}
+                      <Link href="/driver/verification">
+                        Go to verification
+                      </Link>
                     </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            ) : null}
-              </>
-            ) : null}
+                  </CardContent>
+                </Card>
+              ) : null}
+            </div>
 
-            {showTrip && isVerified ? (
-              <DriverTripPanel
-                onTripSelect={(requestId) => {
-                  setSelectedTripId(requestId);
-                  const url = new URL(window.location.href);
-                  if (requestId) {
-                    url.searchParams.set("requestId", requestId);
-                  } else {
-                    url.searchParams.delete("requestId");
-                  }
-                  window.history.replaceState(null, "", url);
-                }}
-                isStatusPending={updateTripStatus.isPending}
-                isRejectPending={rejectTrip.isPending}
-                isTrackingActive={isTrackingActive}
-                lastKnownLocation={lastKnownLocation}
-                onStatusUpdate={handleTripStatusUpdate}
-                onTripReject={handleTripReject}
-                queryError={myTripQuery.error}
-                queryIsError={myTripQuery.isError}
-                queryIsLoading={myTripQuery.isLoading}
-                selectedTripId={selectedTripId}
-                trackingMessage={trackingMessage}
-                trips={activeTrips}
-                trip={activeTrip}
-              />
-            ) : null}
-
-            {showTrip && !isVerified ? (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
-                      <Lock className="size-5" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-semibold">
-                        Trip controls locked
-                      </h2>
-                      <p className="text-sm text-muted-foreground">
-                        Complete driver verification before active trip tools
-                        and live tracking become available.
-                      </p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <Button
-                    asChild
-                    className="bg-blue-600 text-white hover:bg-blue-700"
-                  >
-                    <Link href="/driver/verification">Go to verification</Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : null}
-          </div>
-
-          <Card className="h-fit">
-            <CardHeader>
-              <h2 className="text-lg font-semibold">Driver profile</h2>
-              <p className="text-sm text-muted-foreground">
-                Basic account details from your session.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div>
-                <p className="text-muted-foreground">Email</p>
-                <p className="font-medium">{data?.user.email}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Phone</p>
-                <p className="font-medium">{data?.user.phone}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Verification</p>
-                <p className="font-medium">{copy.label}</p>
-              </div>
-              {isVerified && ambulance && (
-                <div className="pt-2">
-                  <Separator className="my-3" />
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Operational Status</p>
-                  <div className="mt-2 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-block size-2.5 rounded-full ${
-                        ambulance.status === "available" ? "bg-green-500 animate-pulse" :
-                        ambulance.status === "offline" ? "bg-slate-400" :
-                        "bg-amber-500"
-                      }`} />
-                      <span className="font-medium capitalize">{ambulance.status}</span>
-                    </div>
-                    {(ambulance.status === "available" || ambulance.status === "offline") && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          updateAmbulanceStatus.mutate({
-                            ambulanceId: ambulance.id || ambulance._id || "",
-                            status: ambulance.status === "available" ? "offline" : "available"
-                          }, {
-                            onSuccess: () => {
-                              toast.success(`You are now ${ambulance.status === "available" ? "Offline" : "Online"}`);
-                            }
-                          });
-                        }}
-                        disabled={updateAmbulanceStatus.isPending}
-                      >
-                        {ambulance.status === "available" ? "Go Offline" : "Go Online"}
-                      </Button>
-                    )}
-                  </div>
+            <Card className="h-fit">
+              <CardHeader>
+                <h2 className="text-lg font-semibold">Driver profile</h2>
+                <p className="text-sm text-muted-foreground">
+                  Basic account details from your session.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground">Email</p>
+                  <p className="font-medium">{data?.user.email}</p>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                <div>
+                  <p className="text-muted-foreground">Phone</p>
+                  <p className="font-medium">{data?.user.phone}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Verification</p>
+                  <p className="font-medium">{copy.label}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         ) : null}
       </div>
     </main>

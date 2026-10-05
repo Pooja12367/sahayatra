@@ -152,6 +152,41 @@ describe('EmergencyRequestService dispatch', () => {
 });
 
 describe('EmergencyRequestService driver trips', () => {
+  it('returns an empty active-trip list when the verified driver has no ambulance', async () => {
+    const userId = new Types.ObjectId();
+    const emptyQuery = {
+      populate: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([]),
+    };
+    const noAmbulanceQuery = {
+      limit: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([]),
+    };
+    const service = new EmergencyRequestService(
+      {
+        find: jest.fn().mockReturnValue(emptyQuery),
+      } as unknown as Model<EmergencyRequestDocument>,
+      {
+        find: jest.fn().mockReturnValue(noAmbulanceQuery),
+      } as unknown as Model<AmbulanceDocument>,
+      {} as Model<HospitalDocument>,
+      {} as ModuleRef,
+      {
+        assertDriverVerified: jest.fn().mockResolvedValue(undefined),
+      } as unknown as RoleProfilesService,
+      {} as Model<UserDocument>,
+    );
+
+    await expect(
+      service.findMyTrip({
+        _id: userId,
+        phone: '+9779812345678',
+      } as UserDocument),
+    ).resolves.toEqual([]);
+  });
+
   it('loads the active request by the authenticated unique driver ID', async () => {
     const userId = new Types.ObjectId();
     const trip = { _id: new Types.ObjectId(), status: 'at-patient' };
@@ -224,12 +259,19 @@ describe('EmergencyRequestService driver trips', () => {
 
   it('uses the exact phone relationship for legacy ambulance records', async () => {
     const ambulance = { _id: new Types.ObjectId() };
+    const byDriverIdQuery = {
+      limit: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue([]),
+    };
     const ambulanceQuery = {
       limit: jest.fn().mockReturnThis(),
       exec: jest.fn().mockResolvedValue([ambulance]),
     };
     const ambulanceModel = {
-      find: jest.fn().mockReturnValue(ambulanceQuery),
+      find: jest
+        .fn()
+        .mockReturnValueOnce(byDriverIdQuery)
+        .mockReturnValueOnce(ambulanceQuery),
     };
     const service = new EmergencyRequestService(
       {} as Model<EmergencyRequestDocument>,
@@ -250,12 +292,21 @@ describe('EmergencyRequestService driver trips', () => {
       } as UserDocument),
     ).resolves.toBe(ambulance);
 
-    expect(ambulanceModel.find).toHaveBeenCalledWith({
-      phone: {
-        $in: ['+9779876543667', '9876543667', '9779876543667'],
-      },
-      isActive: true,
-    });
+    expect(ambulanceModel.find).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        phone: {
+          $in: expect.arrayContaining([
+            '+9779876543667',
+            '9876543667',
+            '09876543667',
+            '9779876543667',
+            '009779876543667',
+          ]),
+        },
+        isActive: true,
+      }),
+    );
     expect(ambulanceQuery.limit).toHaveBeenCalledWith(2);
   });
 

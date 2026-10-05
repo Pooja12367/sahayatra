@@ -15,6 +15,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,11 @@ import {
 } from "@/hooks/use-drivers";
 import { useEmergencyRequests } from "@/hooks/use-emergency-requests";
 import { getFriendlyApiErrorMessage } from "@/lib/api";
+import {
+  acquireSocketConnection,
+  releaseSocketConnection,
+  socket,
+} from "@/lib/socket";
 import type { AdminDriver } from "@/types/drivers";
 import type { EmergencyRequestStatus } from "@/types/emergency-requests";
 
@@ -138,6 +144,14 @@ function formatStatusLabel(value: string | undefined) {
     return "Not assigned";
   }
 
+  if (value === "available") {
+    return "Online";
+  }
+
+  if (value === "offline") {
+    return "Offline";
+  }
+
   return value
     .split("-")
     .map((part) => part[0].toUpperCase() + part.slice(1))
@@ -145,6 +159,7 @@ function formatStatusLabel(value: string | undefined) {
 }
 
 export default function AdminDriversPage() {
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof pageSizeOptions)[number]>(
     10,
@@ -171,6 +186,22 @@ export default function AdminDriversPage() {
   const totalPages = pagination?.totalPages ?? 1;
   const pageStart = totalItems === 0 ? 0 : (page - 1) * pageSize + 1;
   const pageEnd = Math.min(page * pageSize, totalItems);
+
+  useEffect(() => {
+    const token = acquireSocketConnection();
+    const invalidateDrivers = () => {
+      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+    };
+
+    socket.on("ambulance.updated", invalidateDrivers);
+    socket.on("ambulance.status.updated", invalidateDrivers);
+
+    return () => {
+      socket.off("ambulance.updated", invalidateDrivers);
+      socket.off("ambulance.status.updated", invalidateDrivers);
+      releaseSocketConnection(token);
+    };
+  }, [queryClient]);
 
   useEffect(() => {
     setPage(1);

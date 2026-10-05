@@ -8,6 +8,7 @@ import {
   ArrayMaxSize,
   IsBoolean,
   IsNumber,
+  IsMongoId,
   Matches,
   MaxLength,
 } from 'class-validator';
@@ -15,24 +16,29 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { AmbulanceStatus } from '../../constants/enums';
 
 export class CreateAmbulanceDto {
+  @ApiPropertyOptional({ example: '65f1a6f2c3b7a91d2e4f5681' })
+  @IsOptional()
+  @IsMongoId()
+  driverId?: string;
+
   @ApiProperty({ example: 'AMB-102' })
   @IsString()
   @IsNotEmpty()
   ambulanceCode!: string;
 
-  @ApiProperty({ example: 'Nabin KC' })
+  @ApiPropertyOptional({ example: 'Nabin KC' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  driverName!: string;
+  driverName?: string;
 
-  @ApiProperty({ example: '9817404665' })
+  @ApiPropertyOptional({ example: '9817404665' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(10)
   @Matches(/^[0-9]{10}$/, {
     message: 'Phone number must be exactly 10 digits',
   })
-  phone!: string;
+  phone?: string;
 
   @ApiPropertyOptional({
     enum: AmbulanceStatus,
