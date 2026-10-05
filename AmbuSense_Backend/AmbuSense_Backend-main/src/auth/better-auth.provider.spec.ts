@@ -1,7 +1,9 @@
 import { ConfigService } from '@nestjs/config';
 import {
-  buildResetPasswordUrl,
+  buildResetPasswordEmailUrl,
   getConfiguredUrl,
+  getResetPasswordRedirectUrl,
+  redactResetPasswordToken,
 } from './better-auth.provider';
 
 function createConfig(values: Record<string, string>) {
@@ -11,22 +13,36 @@ function createConfig(values: Record<string, string>) {
 }
 
 describe('password reset URL configuration', () => {
-  it('generates a reset link on the configured deployed frontend', () => {
-    const config = createConfig({
-      NODE_ENV: 'production',
-      FRONTEND_URL: 'https://sahayatraa-three.vercel.app',
-    });
-    const frontendUrl = getConfiguredUrl(
-      config,
-      ['FRONTEND_URL'],
-      'frontend',
+  it('sends the Better Auth reset callback to the configured frontend reset page', () => {
+    const frontendUrl = 'https://sahayatraa-three.vercel.app';
+    const redirectTo = getResetPasswordRedirectUrl(frontendUrl);
+    const betterAuthUrl = `https://sahayatra-backend-fa4y.onrender.com/reset-password/opaque-token?callbackURL=${encodeURIComponent(redirectTo)}`;
+    const emailUrl = buildResetPasswordEmailUrl(
+      betterAuthUrl,
+      'opaque-token',
+      frontendUrl,
     );
 
-    expect(
-      buildResetPasswordUrl(frontendUrl, 'token with reserved characters'),
-    ).toBe(
-      'https://sahayatraa-three.vercel.app/reset-password?token=token+with+reserved+characters',
+    expect(emailUrl).toBe(
+      'https://sahayatraa-three.vercel.app/reset-password?token=opaque-token',
     );
+    expect(redactResetPasswordToken(emailUrl)).toBe(
+      'https://sahayatraa-three.vercel.app/reset-password?token=%5Bredacted%5D',
+    );
+    expect(emailUrl).not.toContain('localhost');
+  });
+
+  it('rejects reset callbacks outside the configured frontend', () => {
+    const betterAuthUrl =
+      'https://sahayatra-backend-fa4y.onrender.com/reset-password/token?callbackURL=http%3A%2F%2Flocalhost%3A3000%2Freset-password';
+
+    expect(() =>
+      buildResetPasswordEmailUrl(
+        betterAuthUrl,
+        'token',
+        'https://sahayatraa-three.vercel.app',
+      ),
+    ).toThrow('Password reset callback URL is not the configured frontend.');
   });
 
   it.each([

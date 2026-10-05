@@ -58,6 +58,7 @@ export type SignupPayload = {
 
 export type ForgotPasswordPayload = {
   email: string;
+  redirectTo?: string;
 };
 
 export type ResetPasswordPayload = {

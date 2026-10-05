@@ -17,7 +17,12 @@ import { UserRole } from '../constants/enums';
 import { RoleProfilesService } from '../role-profiles/role-profiles.service';
 import { UserDocument } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
-import { SahayatraAuth, createBetterAuth } from './better-auth.provider';
+import {
+  getFrontendUrl,
+  getResetPasswordRedirectUrl,
+  SahayatraAuth,
+  createBetterAuth,
+} from './better-auth.provider';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -237,6 +242,13 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   async forgotPassword(dto: ForgotPasswordDto, req: Request) {
     const normalizedEmail = dto.email.trim().toLowerCase();
     const matchingUser = await this.usersService.findByEmail(normalizedEmail);
+    const redirectTo = getResetPasswordRedirectUrl(
+      getFrontendUrl(this.configService),
+    );
+
+    if (dto.redirectTo && dto.redirectTo !== redirectTo) {
+      throw new BadRequestException('Invalid password reset redirect URL.');
+    }
 
     console.log(
       `[auth] Password reset request received for ${maskEmail(normalizedEmail)}; application user ${
@@ -246,6 +258,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     const authResponse = await this.getAuth().api.requestPasswordReset({
       body: {
         email: normalizedEmail,
+        redirectTo,
       },
       headers: this.headersFromRequest(req),
       asResponse: true,

@@ -95,7 +95,13 @@ export function useForgotPassword() {
     mutationFn: async (payload: ForgotPasswordPayload) => {
       const { data } = await api.post<{ message: string }>(
         "/auth/forgot-password",
-        payload,
+        {
+          ...payload,
+          redirectTo: new URL(
+            "/reset-password",
+            window.location.origin,
+          ).toString(),
+        },
       );
       return data;
     },

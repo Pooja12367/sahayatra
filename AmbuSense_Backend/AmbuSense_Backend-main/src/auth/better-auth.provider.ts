@@ -67,7 +67,7 @@ export function getConfiguredUrl(
   return parsedUrl.toString().replace(/\/$/, '');
 }
 
-function getFrontendUrl(configService: ConfigService) {
+export function getFrontendUrl(configService: ConfigService) {
   return getConfiguredUrl(
     configService,
     ['FRONTEND_URL', 'APP_FRONTEND_URL', 'PUBLIC_FRONTEND_URL'],
@@ -83,10 +83,40 @@ function getBackendUrl(configService: ConfigService) {
   );
 }
 
-export function buildResetPasswordUrl(frontendUrl: string, token: string) {
-  const resetUrl = new URL('/reset-password', frontendUrl);
+export function getResetPasswordRedirectUrl(frontendUrl: string) {
+  return new URL('/reset-password', frontendUrl).toString();
+}
+
+export function buildResetPasswordEmailUrl(
+  betterAuthUrl: string,
+  token: string,
+  frontendUrl: string,
+) {
+  const callbackUrl = new URL(betterAuthUrl).searchParams.get('callbackURL');
+  if (!callbackUrl) {
+    throw new Error('Password reset callback URL is missing.');
+  }
+
+  const resetUrl = new URL(callbackUrl);
+  const configuredFrontend = new URL(frontendUrl);
+  if (
+    resetUrl.origin !== configuredFrontend.origin ||
+    resetUrl.pathname !== '/reset-password' ||
+    resetUrl.hash
+  ) {
+    throw new Error('Password reset callback URL is not the configured frontend.');
+  }
+
   resetUrl.searchParams.set('token', token);
   return resetUrl.toString();
+}
+
+export function redactResetPasswordToken(resetUrl: string) {
+  const parsedUrl = new URL(resetUrl);
+  if (parsedUrl.searchParams.has('token')) {
+    parsedUrl.searchParams.set('token', '[redacted]');
+  }
+  return parsedUrl.toString();
 }
 
 function maskEmail(email: string) {
@@ -253,10 +283,16 @@ function getBetterAuthOptions(
   }
   const resetPasswordTokenExpiresIn = configuredExpiry;
   const frontendUrl = getFrontendUrl(configService);
+  const backendUrl = getBackendUrl(configService);
+  const trustedOrigins: string[] = [
+    new URL(frontendUrl).origin,
+    new URL(backendUrl).origin,
+  ];
 
   return {
     secret: configService.get<string>('BETTER_AUTH_SECRET'),
-    baseURL: getBackendUrl(configService),
+    baseURL: backendUrl,
+    trustedOrigins,
     logger: {
       log: (level, message, ...args) => {
         if (message === 'Reset Password: User not found') {
@@ -284,11 +320,18 @@ function getBetterAuthOptions(
     emailAndPassword: {
       enabled: true,
       resetPasswordTokenExpiresIn,
-      sendResetPassword: async ({ user, token }) => {
+      sendResetPassword: async ({ user, token, url }) => {
         console.log(
           `[auth] Password reset email callback invoked for ${maskEmail(user.email)}`,
         );
-        const resetUrl = buildResetPasswordUrl(frontendUrl, token);
+        const resetUrl = buildResetPasswordEmailUrl(
+          url,
+          token,
+          frontendUrl,
+        );
+        console.log(
+          `[auth] Password reset email URL for ${maskEmail(user.email)}: ${redactResetPasswordToken(resetUrl)}`,
+        );
 
         await sendResetPasswordEmail(configService, {
           email: user.email,
