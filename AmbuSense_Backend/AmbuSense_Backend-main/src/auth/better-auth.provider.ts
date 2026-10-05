@@ -22,11 +22,6 @@ const dynamicImport = new Function('specifier', 'return import(specifier)') as <
 
 export type SahayatraAuth = Auth<ReturnType<typeof getBetterAuthOptions>>;
 
-const productionUrls = {
-  frontend: 'https://ambu-sense-frontend.vercel.app',
-  backend: 'https://ambusense-backend.onrender.com',
-} as const;
-
 function isProductionEnvironment(configService: ConfigService) {
   return (
     (configService.get<string>('NODE_ENV') ??
@@ -67,15 +62,6 @@ export function getConfiguredUrl(
   if (isProduction && parsedUrl.port) {
     throw new Error(
       `${names[0]} must use the standard HTTPS port in production.`,
-    );
-  }
-  if (
-    isProduction &&
-    (parsedUrl.origin !== productionUrls[kind] ||
-      parsedUrl.pathname !== '/')
-  ) {
-    throw new Error(
-      `${names[0]} must be set to ${productionUrls[kind]} in production.`,
     );
   }
   return parsedUrl.toString().replace(/\/$/, '');

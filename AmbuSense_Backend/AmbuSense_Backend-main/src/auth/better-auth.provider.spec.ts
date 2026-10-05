@@ -14,7 +14,7 @@ describe('password reset URL configuration', () => {
   it('generates a reset link on the configured deployed frontend', () => {
     const config = createConfig({
       NODE_ENV: 'production',
-      FRONTEND_URL: 'https://ambu-sense-frontend.vercel.app',
+      FRONTEND_URL: 'https://sahayatraa-three.vercel.app',
     });
     const frontendUrl = getConfiguredUrl(
       config,
@@ -25,7 +25,7 @@ describe('password reset URL configuration', () => {
     expect(
       buildResetPasswordUrl(frontendUrl, 'token with reserved characters'),
     ).toBe(
-      'https://ambu-sense-frontend.vercel.app/reset-password?token=token+with+reserved+characters',
+      'https://sahayatraa-three.vercel.app/reset-password?token=token+with+reserved+characters',
     );
   });
 
@@ -33,7 +33,6 @@ describe('password reset URL configuration', () => {
     'http://localhost:3000',
     'https://frontend.example.com:3000',
     'https://backend.example.com:5001',
-    'https://ambusense-frontend.vercel.app',
   ])('rejects non-production URL configuration: %s', (url) => {
     const config = createConfig({
       NODE_ENV: 'production',
@@ -53,7 +52,7 @@ describe('password reset URL configuration', () => {
     ).toThrow('FRONTEND_URL is required in production');
   });
 
-  it('requires the deployed backend origin in production', () => {
+  it('uses the configured deployed backend origin in production', () => {
     const config = createConfig({
       NODE_ENV: 'production',
       BETTER_AUTH_URL: 'http://localhost:5001',
@@ -67,12 +66,12 @@ describe('password reset URL configuration', () => {
       getConfiguredUrl(
         createConfig({
           NODE_ENV: 'production',
-          BETTER_AUTH_URL: 'https://ambusense-backend.onrender.com',
+          BETTER_AUTH_URL: 'https://sahayatra-backend-fa4y.onrender.com',
         }),
         ['BETTER_AUTH_URL'],
         'backend',
       ),
-    ).toBe('https://ambusense-backend.onrender.com');
+    ).toBe('https://sahayatra-backend-fa4y.onrender.com');
   });
 
   it('treats a Render deployment as production even without NODE_ENV', () => {
